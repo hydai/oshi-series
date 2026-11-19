@@ -1,0 +1,21 @@
+{
+  "name": "oshi-series-backend",
+  "version": "1.0.0",
+  "private": true,
+  "description": "「你推」系列後端：查詢 YouTube 頻道多久沒開台、最近 30 天直播總時數",
+  "main": "server.js",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20 <25"
+  },
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.6",
+    "dotenv": "^18.0.10",
+    "express": "^5.3.0",
+    "express-rate-limit": "^8.7.4",
+    "he": "^2.0.0"
+  }
+}
