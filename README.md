@@ -126,10 +126,10 @@ oshi-series/
 
 ### 2-1 下載程式
 
-打開終端機，輸入下面的指令（把網址換成這個專案在 GitHub 上的網址）：
+打開終端機，輸入下面的指令：
 
 ```bash
-git clone https://github.com/<帳號>/oshi-series.git
+git clone https://github.com/starknows/oshi-series.git
 ```
 
 ```bash
