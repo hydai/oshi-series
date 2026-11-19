@@ -7,38 +7,42 @@
     .channel__info.m-bottom
       span 距離
       span.channel-name {{ channelName }}
-      span 上次在 YouTube 開台已經過了
+      span {{ `上次在 ${platform.label} 開台已經過了` }}
     .channel__time
       span.channel__time-text.m-bottom {{ `${elapsed[0]} 天 ${elapsed[1]}時 ` }}
       span.channel__time-text {{ `${elapsed[2]}分 ${elapsed[3]}秒` }}
     .channel__care.d-flex.f-center.m-top.f-wrap
-      a(:href="`https://www.youtube.com/${channelId}?sub_confirmation=1`" target="_blank" rel="noopener noreferrer") {{ '>> 訂閱頻道' }}
-      a(v-if="lastLiveId" :href="`https://www.youtube.com/watch?v=${lastLiveId}`" target="_blank" rel="noopener noreferrer") {{ '>> 看上一場直播' }}
+      a(:href="platform.channelUrl(channelId)" target="_blank" rel="noopener noreferrer") {{ platform.followText }}
+      a(v-if="lastLiveId" :href="platform.videoUrl(lastLiveId)" target="_blank" rel="noopener noreferrer") {{ '>> 看上一場直播' }}
       a.highlight(v-if="deerUrl" :href="`https://deerdonate.herokuapp.com/donation/${deerUrl}`" target="_blank" rel="noopener noreferrer") {{ '>> 贊助主播' }}
       a.highlight(v-if="ecPayUrl" :href="`https://p.ecpay.com.tw/${ecPayUrl}`" target="_blank" rel="noopener noreferrer") {{ '>> 贊助主播' }}
   .channel__info.invalid-text.d-flex.f-center.f-col(v-else-if="resultStatus === 'live'")
-    a.channel__info__now_streaming_cover(:href="`https://www.youtube.com/${channelId}/live`" target="_blank" rel="noopener noreferrer")
-      img(:src="`https://img.youtube.com/vi/${lastLiveId}/maxresdefault.jpg`" alt="直播畫面")
+    a.channel__info__now_streaming_cover(v-if="liveImage" :href="platform.liveUrl(channelId)" target="_blank" rel="noopener noreferrer")
+      img(:src="liveImage" alt="直播畫面")
     span 這個頻道正在直播中
-    a.highlight(:href="`https://www.youtube.com/${channelId}/live`" target="_blank" rel="noopener noreferrer") {{ viewCount ? `>> 前往直播（目前 ${viewCount} 人觀看）` : '>> 前往直播' }}
+    a.highlight(:href="platform.liveUrl(channelId)" target="_blank" rel="noopener noreferrer") {{ viewCount ? `>> 前往直播（目前 ${viewCount} 人觀看）` : '>> 前往直播' }}
   .invalid-text.d-flex.f-center.f-col(v-else-if="resultStatus === 'empty'")
     span.m-bottom {{ channelId }}
     span 目前沒有直播紀錄
-  .invalid-text.d-flex.f-center(v-else-if="resultStatus === 'unsafe'") 帳號代碼或格式錯誤，無法找到頻道
+  .invalid-text.d-flex.f-center(v-else-if="resultStatus === 'unsafe'") 帳號或格式錯誤，無法找到頻道
   .invalid-text.d-flex.f-center(v-else-if="resultStatus === 'busy'") 查詢次數過多，請稍後再試
+  .invalid-text.d-flex.f-center(v-else-if="resultStatus === 'disabled'") 這個網站沒有啟用 Twitch 查詢
   .invalid-text.d-flex.f-center(v-else) 發生錯誤，請稍後再試
 </template>
 
 <script setup>
 import { onMounted, onUnmounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
-import { isValidHandle, queryChannel } from '@/api.js'
+import { queryChannel } from '@/api.js'
+import { detectPlatform } from '@/platforms.js'
 
 const route = useRoute()
 const channelId = route.params.channelId
+// @ 開頭是 YouTube，其餘是 Twitch；格式不符合時為 null
+const platform = detectPlatform(channelId)
 
-// 畫面狀態：null=查詢中、valid=有結果、live=正在直播、empty=沒有直播紀錄、
-//          unsafe=找不到頻道、busy=查詢次數過多、error=其他錯誤
+// 畫面狀態：null=查詢中、valid=有結果、live=正在直播、empty=沒有直播紀錄、unsafe=找不到頻道、
+//          busy=查詢次數過多、disabled=後端沒有啟用 Twitch、error=其他錯誤
 const resultStatus = ref(null)
 const slowLoading = ref(false)
 const channelName = ref('')
@@ -47,6 +51,7 @@ const elapsed = ref([0, 0, 0, 0])
 const deerUrl = ref(null)
 const ecPayUrl = ref(null)
 const viewCount = ref(0)
+const liveImage = ref(null)
 let timer = null
 let slowTimer = null
 
@@ -64,17 +69,17 @@ const cleanLink = (str) => (typeof str === 'string' ? str.replace('&#13;', '') :
 
 const doFetching = async () => {
   try {
-    const res = await queryChannel('/api/channel-last-live', channelId)
+    const res = await queryChannel(platform.lastPath, channelId)
     if (res.status === 422) {
       // 頻道正在直播
       const live = await res.json()
       viewCount.value = live.count
-      lastLiveId.value = live.lastLiveId
+      liveImage.value = platform.liveImage(live)
       resultStatus.value = 'live'
       return
     }
     if (!res.ok) {
-      const statusMap = { 400: 'unsafe', 403: 'empty', 429: 'busy' }
+      const statusMap = { 400: 'unsafe', 403: 'empty', 429: 'busy', 503: 'disabled' }
       resultStatus.value = statusMap[res.status] || 'error'
       return
     }
@@ -95,7 +100,7 @@ const doFetching = async () => {
 }
 
 onMounted(() => {
-  if (!isValidHandle(channelId)) {
+  if (!platform) {
     resultStatus.value = 'unsafe'
     return
   }

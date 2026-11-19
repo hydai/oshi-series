@@ -6,15 +6,15 @@
   template(v-else-if="resultStatus === 'valid'")
     .channel__info
       span 最近 30 天內
-      a.channel-name.m-bottom(:href="`https://www.youtube.com/${channelId}?sub_confirmation=1`" target="_blank" rel="noopener noreferrer") {{ channelName }}
-      span 在 YouTube 總共直播了
+      a.channel-name.m-bottom(:href="platform.channelUrl(channelId)" target="_blank" rel="noopener noreferrer") {{ channelName }}
+      span {{ `在 ${platform.label} 總共直播了` }}
     .channel__time
       span.channel__time-text.m-bottom {{ `${totalTime[0]} 時 ` }}
       span.channel__time-text {{ `${totalTime[1]} 分 ${totalTime[2]} 秒` }}
     .channel__care.d-flex.f-center.m-top.f-wrap
       template(v-if="longestLive")
         a.sub_title.d-flex.f-center.w-100 {{ `最長紀錄： ${longestLive.length}` }}
-        a(:href="`https://www.youtube.com/watch?v=${longestLive.id}`" target="_blank" rel="noopener noreferrer") {{ '>> 看最長的那一場' }}
+        a(:href="platform.videoUrl(longestLive.id)" target="_blank" rel="noopener noreferrer") {{ '>> 看最長的那一場' }}
       a.highlight(v-if="deerUrl" :href="`https://deerdonate.herokuapp.com/donation/${deerUrl}`" target="_blank" rel="noopener noreferrer") {{ '>> 贊助主播' }}
       a.highlight(v-if="ecPayUrl" :href="`https://p.ecpay.com.tw/${ecPayUrl}`" target="_blank" rel="noopener noreferrer") {{ '>> 贊助主播' }}
   template(v-else-if="resultStatus === 'empty'")
@@ -28,21 +28,25 @@
       a.channel-name {{ channelId }}
     .invalid-text.d-flex.f-center.f-col
       span 此頻道沒有直播紀錄
-  .invalid-text.d-flex.f-center(v-else-if="resultStatus === 'unsafe'") 帳號代碼錯誤，無法找到頻道
+  .invalid-text.d-flex.f-center(v-else-if="resultStatus === 'unsafe'") 帳號或格式錯誤，無法找到頻道
   .invalid-text.d-flex.f-center(v-else-if="resultStatus === 'busy'") 目前查詢人數較多，請稍後再試
+  .invalid-text.d-flex.f-center(v-else-if="resultStatus === 'disabled'") 這個網站沒有啟用 Twitch 查詢
   .invalid-text.d-flex.f-center(v-else) 發生錯誤，請稍後再試
 </template>
 
 <script setup>
 import { onMounted, onUnmounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
-import { isValidHandle, queryChannel } from '@/api.js'
+import { queryChannel } from '@/api.js'
+import { detectPlatform } from '@/platforms.js'
 
 const route = useRoute()
 const channelId = route.params.channelId
+// @ 開頭是 YouTube，其餘是 Twitch；格式不符合時為 null
+const platform = detectPlatform(channelId)
 
-// 畫面狀態：null=查詢中、valid=有結果、empty=30 天內沒有直播、none=頻道沒有任何直播、
-//          unsafe=找不到頻道、busy=伺服器忙碌、error=其他錯誤
+// 畫面狀態：null=查詢中、valid=有結果、empty=30 天內沒有直播、none=頻道沒有任何直播、unsafe=找不到頻道、
+//          busy=伺服器忙碌、disabled=後端沒有啟用 Twitch、error=其他錯誤
 const resultStatus = ref(null)
 const slowLoading = ref(false)
 const channelName = ref('')
@@ -73,9 +77,9 @@ const cleanLink = (str) => (typeof str === 'string' ? str.replace('&#13;', '') :
 
 const doFetching = async () => {
   try {
-    const res = await queryChannel('/api/channel-diligence', channelId)
+    const res = await queryChannel(platform.recentPath, channelId)
     if (!res.ok) {
-      const statusMap = { 400: 'unsafe', 403: 'none', 429: 'busy' }
+      const statusMap = { 400: 'unsafe', 403: 'none', 429: 'busy', 503: 'disabled' }
       resultStatus.value = statusMap[res.status] || 'error'
       return
     }
@@ -108,7 +112,7 @@ const doFetching = async () => {
 }
 
 onMounted(() => {
-  if (!isValidHandle(channelId)) {
+  if (!platform) {
     resultStatus.value = 'unsafe'
     return
   }

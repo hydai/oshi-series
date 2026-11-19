@@ -4,6 +4,7 @@ const cors = require('cors')
 const { rateLimit } = require('express-rate-limit')
 const lastLive = require('./src/lastLive')
 const recentLive = require('./src/recentLive')
+const twitch = require('./src/twitch')
 
 const PORT = process.env.PORT || 8080
 
@@ -34,6 +35,9 @@ app.use('/api', rateLimit({
 
 app.post('/api/channel-last-live', lastLive)
 app.post('/api/channel-diligence', recentLive)
+// Twitch（選用）：有設定 TWITCH_CLIENT_ID 與 TWITCH_CLIENT_SECRET 才能查詢
+app.post('/api/twitch-last-live', twitch.twitchLastLive)
+app.post('/api/twitch-diligence', twitch.twitchRecentLive)
 
 // 其他沒處理到的錯誤（例如請求內容不是合法的 JSON）
 app.use((err, req, res, next) => {
@@ -55,4 +59,5 @@ app.listen(PORT, '0.0.0.0', () => {
     } else {
         console.log(`允許的前端網址：${ALLOWED_ORIGINS.join(', ')}`)
     }
+    console.log(`Twitch 查詢：${twitch.isConfigured() ? '已啟用' : '未啟用（沒有設定 TWITCH_CLIENT_ID / TWITCH_CLIENT_SECRET）'}`)
 })

@@ -5,6 +5,8 @@
 1. **你推多久沒開台了？** 距離這個頻道上一次直播結束，已經過了幾天幾時幾分幾秒（會一直往上數的計時器）。
 2. **你推最近開了多久？** 這個頻道最近 30 天內總共直播了多久，以及最長的一場是哪一場。
 
+也可以選擇開啟 **Twitch 查詢**（選用），讓同一個網站同時支援 YouTube 與 Twitch 頻道。
+
 這份文件會帶你從零開始，把這個服務架在你自己的帳號底下。**全程使用免費方案，不需要會寫程式**，照著步驟複製貼上就可以完成。
 
 ---
@@ -21,6 +23,7 @@
 - [第 5 步：把前端部署到 Cloudflare Pages](#第-5-步把前端部署到-cloudflare-pages)
 - [第 6 步：讓前端和後端互相認得（CORS）](#第-6-步讓前端和後端互相認得cors)
 - [第 7 步：確認兩個功能都正常](#第-7-步確認兩個功能都正常)
+- [加碼：啟用 Twitch 查詢（選用）](#加碼啟用-twitch-查詢選用)
 - [遇到問題怎麼辦](#遇到問題怎麼辦)
 - [配額與免費方案的限制](#配額與免費方案的限制)
 - [已知限制與注意事項](#已知限制與注意事項)
@@ -60,7 +63,7 @@
            │  ③ 讀取頻道的「直播」分頁，找出直播清單
            │  ④ 用 YouTube Data API 查上一場直播的結束時間（需要金鑰）
            ▼
-        YouTube
+        YouTube          （選用：查 Twitch 頻道時，後端改向 Twitch 官方 API 查詢）
 ```
 
 你需要架兩個東西：**前端**（網頁）和**後端**（查資料的程式）。金鑰只放在後端，訪客看不到。
@@ -77,6 +80,7 @@ oshi-series/
 │   └── src/
 │       ├── lastLive.js    ← 功能 1：多久沒開台
 │       ├── recentLive.js  ← 功能 2：最近 30 天直播總時數
+│       ├── twitch.js      ← Twitch 版的兩個功能（選用）
 │       ├── channelInfo.js ← 取得頻道名稱
 │       ├── fetchPage.js   ← 抓取 YouTube 網頁
 │       └── cache.js       ← 暫存查過的結果
@@ -85,6 +89,7 @@ oshi-series/
     ├── index.html         ← 網頁標題、說明文字
     └── src/
         ├── api.js         ← 呼叫後端
+        ├── platforms.js   ← YouTube 與 Twitch 各自的網址與文字
         ├── router/        ← 網址對應到哪個畫面
         └── views/         ← 三個畫面：首頁、多久沒開台、最近開了多久
 ```
@@ -99,6 +104,7 @@ oshi-series/
 | [Cloudflare 帳號](https://dash.cloudflare.com/sign-up) | 放前端 | 免費方案 |
 | [Node.js](https://nodejs.org/)（22 以上，下載 LTS 版） | 在自己電腦上試跑時需要 | 免費 |
 | [Git](https://git-scm.com/downloads) | 下載與上傳程式 | 免費 |
+| [Twitch 帳號](https://www.twitch.tv/)（選用） | 只有想開啟 Twitch 查詢才需要 | 免費 |
 
 > 如果你只想直接部署、不想在自己電腦上試跑，可以跳過 Node.js 和第 2 步。但建議還是先在電腦上跑一次，確認金鑰可以用。
 
@@ -304,6 +310,68 @@ Render 和 Cloudflare 都是從 GitHub 讀取程式，所以你的 GitHub 帳號
 
 ---
 
+## 加碼：啟用 Twitch 查詢（選用）
+
+做完前面 7 步，網站已經可以查 YouTube 頻道。如果也想查 Twitch 頻道，再做這一段；不需要的話可以整段跳過。
+
+啟用後，首頁會多出 **YouTube / Twitch** 的切換，兩個功能在 Twitch 上的意思是：
+
+- **多久沒開台**：距離這個頻道最新一支直播存檔結束，過了多久。頻道正在直播時會顯示「正在直播中」。
+- **最近開了多久**：最近 30 天內所有直播存檔的長度加總。
+
+### T-1 申請 Twitch 應用程式
+
+1. 你的 Twitch 帳號必須先開啟**兩步驟驗證**：到 [Twitch 的 Security 設定](https://www.twitch.tv/settings/security) 開啟。
+2. 登入 [Twitch Developer Console](https://dev.twitch.tv/console)（如果剛開啟兩步驟驗證，請重新整理頁面）。
+3. 切到 **Applications** 分頁，按 **Register Your Application**，填寫：
+
+   | 欄位 | 要填的值 |
+   |------|----------|
+   | **Name** | 自己取（不能和別人的應用程式重複，例如 `my-oshi-12345`） |
+   | **OAuth Redirect URLs** | 填 `http://localhost:3000`，然後按 **Add**（這個專案用不到它，但欄位必填） |
+   | **Category** | 任選一個最接近的類別 |
+   | **Client Type**（如果有這個欄位） | **Confidential** |
+
+4. 勾選 **I'm not a robot**，按 **Create**。
+5. 回到 **Applications**，在剛建立的應用程式旁按 **Manage**：
+   - 把 **Client ID** 複製起來。
+   - 按 **New Secret** 產生 **Client Secret**，複製起來並妥善保存（再按一次 New Secret 會讓舊的失效）。
+
+> **Client Secret 和 YouTube 金鑰一樣是機密**：只能填在後端（`backend/.env` 與 Render 的環境變數），不要放進 `frontend/`、不要上傳到 GitHub。
+
+### T-2 設定後端
+
+在 Render 的 **Environment** 頁面新增兩個環境變數，然後選 **Save and deploy**：
+
+| Key | Value |
+|-----|-------|
+| `TWITCH_CLIENT_ID` | 上一步的 Client ID |
+| `TWITCH_CLIENT_SECRET` | 上一步的 Client Secret |
+
+重新啟動後，Render 的 **Logs** 會出現 `Twitch 查詢：已啟用`。
+
+（在自己電腦上試跑的話，是把這兩個值填進 `backend/.env`，再重新 `npm start`。）
+
+### T-3 設定前端
+
+在 Cloudflare Pages 專案的環境變數頁面新增下面這個變數，然後重新建置一次（做法同第 5 步的說明）：
+
+| Variable name | Value |
+|---------------|-------|
+| `VITE_ENABLE_TWITCH` | `true` |
+
+（在自己電腦上試跑的話，是把 `frontend/.env` 裡的 `VITE_ENABLE_TWITCH=` 改成 `VITE_ENABLE_TWITCH=true`，再重新 `npm run dev`。）
+
+### T-4 確認
+
+- [ ] 首頁標題下方出現 **YouTube / Twitch** 切換
+- [ ] 切到 Twitch，輸入 `nasa` 按 Enter → 出現計時器，或顯示「這個頻道正在直播中」
+- [ ] 切到「最近開了多久」，選 Twitch 輸入 `nasa` → 出現直播總時數，或顯示「最近 30 天內沒有直播紀錄」
+
+Twitch 的帳號是頻道網址最後那一段（例如 `twitch.tv/nasa` 的 `nasa`），**沒有** `@`。網址以 `@` 開頭的會被當成 YouTube，其餘當成 Twitch，例如 `/last/@TED` 是 YouTube、`/last/nasa` 是 Twitch。
+
+---
+
 ## 遇到問題怎麼辦
 
 先看後端的紀錄：Render Dashboard → 你的服務 → **Logs** 頁面。大部分問題的原因都會寫在那裡。
@@ -317,6 +385,9 @@ Render 和 Cloudflare 都是從 GitHub 讀取程式，所以你的 GitHub 帳號
 | 顯示「帳號代碼或格式錯誤，無法找到頻道」 | 帳號代碼要包含開頭的 `@`，而且要是頻道網址裡 `youtube.com/` 後面那一段（例如 `@NASA`），不是頻道的顯示名稱。 |
 | 顯示「查詢次數過多」或「目前查詢人數較多」 | 觸發了內建的流量限制（見下一節），稍等再試。 |
 | 所有頻道都查不到直播紀錄 | YouTube 的網頁格式可能改版了，請見[已知限制與注意事項](#已知限制與注意事項)。 |
+| 顯示「這個網站沒有啟用 Twitch 查詢」 | 後端沒有設定 `TWITCH_CLIENT_ID` 與 `TWITCH_CLIENT_SECRET`，請見[加碼：啟用 Twitch 查詢](#加碼啟用-twitch-查詢選用)。 |
+| Twitch 查詢顯示「發生錯誤」，Logs 出現 `Twitch token 400` 或 `403` | Client ID 或 Client Secret 填錯，或 Secret 已被重新產生而失效。到 Twitch Developer Console 確認後更新環境變數。 |
+| Twitch 頻道明明常開台，卻顯示沒有直播紀錄 | 該頻道沒有保留直播存檔，或存檔已過期被 Twitch 刪除，請見[已知限制與注意事項](#已知限制與注意事項)。 |
 
 ---
 
@@ -336,6 +407,12 @@ Render 和 Cloudflare 都是從 GitHub 讀取程式，所以你的 GitHub 帳號
 - 換句話說，最糟的情況下一天大約可以查 10,000 次「多久沒開台」，一般個人或小社群使用很難用完。
 - 後端休眠或重新啟動後，記住的結果會清空，同一個頻道第一次被查詢時會再消耗 1 單位。
 - 可以在 Google Cloud Console 的 [Quotas](https://console.cloud.google.com/iam-admin/quotas) 頁面看到目前的使用量。
+
+### Twitch API（選用）
+
+- 申請應用程式與使用 API 不需要付費。
+- Twitch 以「每分鐘可用點數」限制呼叫量，每次呼叫預設消耗 1 點；這個專案每次 Twitch 查詢會呼叫 2 到 3 次。超過時 Twitch 會回應 `429`，畫面顯示「發生錯誤」，約一分鐘後恢復。
+- Twitch 查詢的結果沒有暫存，每次都是即時查詢。
 
 ### Render 免費方案
 
@@ -358,13 +435,15 @@ Render 和 Cloudflare 都是從 GitHub 讀取程式，所以你的 GitHub 帳號
 
 ## 已知限制與注意事項
 
-- **直播清單來自 YouTube 的公開網頁，不是官方 API。** 後端會讀取頻道的「直播」分頁並解析內容。YouTube 一旦調整網頁格式，功能就可能失效，需要更新 `backend/src/` 裡的解析規則。
+- **直播清單來自 YouTube 的公開網頁，不是官方 API。** 後端會讀取頻道的「直播」分頁並解析內容。YouTube 一旦調整網頁格式，功能就可能失效，需要更新 `backend/src/` 裡的解析規則。（Twitch 查詢用的是官方 API，沒有這個問題。）
 - **雲端主機可能被 YouTube 限制。** YouTube 有時會限制來自雲端機房的請求，此時查詢會失敗（Logs 顯示 `429`）。
 - **「最近 30 天」是近似值。** 判斷依據是 YouTube 頁面上的相對時間（顯示「X 個月前」之前的都算），不是精確的 30 × 24 小時。
 - **最多統計約 60 場直播。** 一個月內直播超過這個數量的頻道，總時數會被低估。
 - **只計算已結束且公開顯示在「直播」分頁的直播。** 正在進行中的直播、待機室不會計入。
-- **贊助連結**：如果頻道近期影片的說明欄裡有綠界（ECPay）或 DeerDonate 的贊助連結，結果頁會多顯示「>> 贊助主播」。
-- **服務條款**：使用 YouTube Data API 代表你同意 [YouTube API 服務條款](https://developers.google.com/youtube/terms/api-services-terms-of-service) 與[開發人員政策](https://developers.google.com/youtube/terms/developer-policies)（其中要求在對外服務上提供 [YouTube 服務條款](https://www.youtube.com/t/terms)與 [Google 隱私權政策](https://policies.google.com/privacy)的連結）；讀取 YouTube 網頁的行為也受 YouTube 服務條款規範。公開架設前請自行評估，風險由架設者自負。
+- **Twitch 的資料來自直播存檔。** 頻道如果沒有開啟保留存檔，或存檔已超過 Twitch 的保存期限而被刪除（期限依帳號類型而不同，詳見 [Twitch 說明中心](https://help.twitch.tv/s/article/video-on-demand)），就會查不到或被低估。
+- **Twitch 的「最近開了多久」會把進行中的直播算進去**（以查詢當下已經播出的長度計算），而且一次最多統計 100 支存檔。YouTube 則不計入進行中的直播。
+- **贊助連結**：如果 YouTube 頻道近期影片的說明欄裡有綠界（ECPay）或 DeerDonate 的贊助連結，結果頁會多顯示「>> 贊助主播」。Twitch 頻道沒有這個功能。
+- **服務條款**：使用 YouTube Data API 代表你同意 [YouTube API 服務條款](https://developers.google.com/youtube/terms/api-services-terms-of-service) 與[開發人員政策](https://developers.google.com/youtube/terms/developer-policies)（其中要求在對外服務上提供 [YouTube 服務條款](https://www.youtube.com/t/terms)與 [Google 隱私權政策](https://policies.google.com/privacy)的連結）；讀取 YouTube 網頁的行為也受 YouTube 服務條款規範。啟用 Twitch 查詢則代表你同意 [Twitch 開發人員服務協議](https://legal.twitch.com/legal/developer-agreement/)。公開架設前請自行評估，風險由架設者自負。
 
 ---
 
@@ -374,8 +453,9 @@ Render 和 Cloudflare 都是從 GitHub 讀取程式，所以你的 GitHub 帳號
 |------------|--------|
 | 瀏覽器分頁標題、分享時的說明文字 | `frontend/index.html`、`frontend/src/router/index.js` |
 | 頁面最下方加上自己的署名與連結 | 設定環境變數 `VITE_FOOTER_TEXT`、`VITE_FOOTER_URL`（本機改 `frontend/.env`，上線改 Cloudflare 的 Environment variables） |
-| 首頁標題、範例頻道 | `frontend/src/views/Home.vue` |
-| 結果頁上的文字（例如「>> 訂閱頻道」） | `frontend/src/views/LastLive.vue`、`frontend/src/views/RecentLive.vue` |
+| 首頁標題 | `frontend/src/views/Home.vue` |
+| 範例頻道、「>> 訂閱頻道」「>> 追隨頻道」等平台相關文字 | `frontend/src/platforms.js` |
+| 結果頁上的其他文字（例如「>> 看上一場直播」） | `frontend/src/views/LastLive.vue`、`frontend/src/views/RecentLive.vue` |
 | 背景顏色 | `frontend/src/App.vue` |
 | 網站小圖示 | `frontend/public/favicon.svg` |
 | 綁定自己的網域 | Cloudflare Pages 專案的 **Custom domains**；綁定後記得把新網址加進 Render 的 `ALLOWED_ORIGINS` |
@@ -384,7 +464,7 @@ Render 和 Cloudflare 都是從 GitHub 讀取程式，所以你的 GitHub 帳號
 
 ## 給開發者的技術說明
 
-- 後端：Node.js（20 以上）＋ Express 5，沒有資料庫，所有暫存都在記憶體裡。
+- 後端：Node.js（20 以上）＋ Express 5，沒有資料庫，所有暫存都在記憶體裡。Twitch 查詢使用 Helix API 與 client credentials 流程取得的 app access token。
 - 前端：Vue 3 ＋ Vite ＋ Vue Router，樣板使用 Pug、樣式使用 Sass。
 
 ### 環境變數
@@ -394,18 +474,23 @@ Render 和 Cloudflare 都是從 GitHub 讀取程式，所以你的 GitHub 帳號
 | 後端 | `YOUTUBE_API_KEY` | 是 | YouTube Data API v3 金鑰 |
 | 後端 | `ALLOWED_ORIGINS` | 是 | 允許呼叫後端的前端網址，逗號分隔 |
 | 後端 | `PORT` | 否 | 連接埠，預設 `8080`；Render 會自動設定 |
+| 後端 | `TWITCH_CLIENT_ID` | 否 | Twitch 應用程式的 Client ID（啟用 Twitch 查詢才需要） |
+| 後端 | `TWITCH_CLIENT_SECRET` | 否 | Twitch 應用程式的 Client Secret（啟用 Twitch 查詢才需要） |
 | 前端 | `VITE_API_URL` | 是 | 後端網址，結尾不加 `/` |
 | 前端 | `VITE_FOOTER_TEXT` | 否 | 頁尾署名文字 |
 | 前端 | `VITE_FOOTER_URL` | 否 | 頁尾署名連結 |
+| 前端 | `VITE_ENABLE_TWITCH` | 否 | 填 `true` 時首頁顯示 YouTube / Twitch 切換 |
 
 ### 後端 API
 
-兩支 API 都是 `POST`，內容為 JSON：`{ "channelId": "@帳號代碼" }`。
+所有 API 都是 `POST`，內容為 JSON：`{ "channelId": "帳號" }`。YouTube 的帳號是 `@` 開頭的帳號代碼，Twitch 的帳號是小寫的登入名稱。
 
 | 路徑 | 成功回應（200） | 其他狀態 |
 |------|-----------------|----------|
 | `/api/channel-last-live` | `{ name, lastLiveId, lastLiveTime, deer?, ecpay?, message }` | `422` 正在直播 `{ count, lastLiveId }`、`403` 沒有直播紀錄、`400` 找不到頻道、`429` 流量限制、`500` 查詢失敗 |
 | `/api/channel-diligence` | `{ data: { name, deer?, ecpay?, list: [{ id, length }] } }` | `403` 沒有直播紀錄、`400` 找不到頻道、`429` 流量限制或忙碌、`500` 查詢失敗 |
+| `/api/twitch-last-live` | `{ name, lastLiveId, lastLiveTime, message }` | `422` 正在直播 `{ count, thumbnail }`、`403` 沒有直播存檔、`400` 找不到頻道、`429` 流量限制、`503` 後端未設定 Twitch、`500` 查詢失敗 |
+| `/api/twitch-diligence` | `{ data: { name, list: [{ id, length }] } }` | `400` 找不到頻道、`429` 流量限制、`503` 後端未設定 Twitch、`500` 查詢失敗 |
 
 `GET /` 會回應 `{"status":"ok"}`，可當作健康檢查。
 
@@ -415,8 +500,8 @@ Render 和 Cloudflare 都是從 GitHub 讀取程式，所以你的 GitHub 帳號
 |------|------|
 | `/` | 首頁（多久沒開台） |
 | `/recent` | 首頁（最近開了多久） |
-| `/last/@帳號代碼` | 多久沒開台的結果 |
-| `/recent/@帳號代碼` | 最近開了多久的結果 |
+| `/last/帳號` | 多久沒開台的結果（`@` 開頭為 YouTube，其餘為 Twitch） |
+| `/recent/帳號` | 最近開了多久的結果（同上） |
 
 ---
 
