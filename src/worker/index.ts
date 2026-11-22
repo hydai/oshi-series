@@ -4,6 +4,7 @@ import { kvCache, remember } from "./cache";
 import { LookupError, UpstreamError } from "./errors";
 import { apiError, json } from "./http";
 import { clientKey, isCrossSite } from "./requester";
+import { twitchLastLive, twitchRecentLive } from "./twitch";
 import { youtubeLastLive, youtubeRecentLive } from "./youtube";
 import { YouTubeApi } from "./youtube/api";
 
@@ -32,7 +33,7 @@ export async function handleRequest(request: Request, env: Env, deps: Deps): Pro
   // wrangler.jsonc routes only /api/* here; everything else is a static asset.
   if (!url.pathname.startsWith("/api/")) return env.ASSETS.fetch(request);
   if (request.method !== "GET") return apiError("method_not_allowed", { allow: "GET" });
-  if (url.pathname === "/api/config") return json({ twitch: false } satisfies SiteConfig);
+  if (url.pathname === "/api/config") return json({ twitch: twitchEnabled(env) } satisfies SiteConfig);
 
   const match = LOOKUP_PATH.exec(url.pathname);
   if (!match) return apiError("not_found");
@@ -49,20 +50,44 @@ export async function handleRequest(request: Request, env: Env, deps: Deps): Pro
   }
 }
 
-async function lookup(mode: Mode, account: Account, env: Env, deps: Deps): Promise<LastLive | RecentLive> {
-  if (account.platform === "twitch") throw new LookupError("twitch_disabled");
-  if (!env.YOUTUBE_API_KEY) throw new LookupError("not_configured");
+const twitchEnabled = (env: Env) => Boolean(env.TWITCH_CLIENT_ID && env.TWITCH_CLIENT_SECRET);
 
+async function lookup(mode: Mode, account: Account, env: Env, deps: Deps): Promise<LastLive | RecentLive> {
   const cache = kvCache(env.CACHE);
-  const youtube = {
-    api: new YouTubeApi({ apiKey: env.YOUTUBE_API_KEY, referer: env.YOUTUBE_API_REFERER || undefined, fetch: deps.fetch }),
-    cache,
-    now: deps.now(),
-  };
-  const key = `yt:${mode}:${account.id.toLowerCase()}`;
+  const now = deps.now();
+  let last: () => Promise<LastLive>;
+  let recent: () => Promise<RecentLive>;
+
+  if (account.platform === "twitch") {
+    if (!env.TWITCH_CLIENT_ID || !env.TWITCH_CLIENT_SECRET) throw new LookupError("twitch_disabled");
+    const twitch = {
+      clientId: env.TWITCH_CLIENT_ID,
+      clientSecret: env.TWITCH_CLIENT_SECRET,
+      cache,
+      fetch: deps.fetch,
+      now,
+    };
+    last = () => twitchLastLive(account.id, twitch);
+    recent = () => twitchRecentLive(account.id, twitch);
+  } else {
+    if (!env.YOUTUBE_API_KEY) throw new LookupError("not_configured");
+    const youtube = {
+      api: new YouTubeApi({
+        apiKey: env.YOUTUBE_API_KEY,
+        referer: env.YOUTUBE_API_REFERER || undefined,
+        fetch: deps.fetch,
+      }),
+      cache,
+      now,
+    };
+    last = () => youtubeLastLive(account.id, youtube);
+    recent = () => youtubeRecentLive(account.id, youtube);
+  }
+
+  const key = `${account.platform}:${mode}:${account.id.toLowerCase()}`;
   return mode === "last"
-    ? remember<LastLive>(cache, key, lastLiveTtl, () => youtubeLastLive(account.id, youtube))
-    : remember<RecentLive>(cache, key, () => RECENT_TTL, () => youtubeRecentLive(account.id, youtube));
+    ? remember<LastLive>(cache, key, lastLiveTtl, last)
+    : remember<RecentLive>(cache, key, () => RECENT_TTL, recent);
 }
 
 function decodeAccount(encoded: string): Account | null {

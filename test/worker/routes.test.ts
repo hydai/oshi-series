@@ -1,6 +1,7 @@
 import { env, reset, SELF } from "cloudflare:test";
 import { afterEach, describe, expect, it } from "vitest";
 import { handleRequest } from "../../src/worker/index";
+import { CLIENT_ID, CLIENT_SECRET, type FakeTwitch, fakeTwitch, twitchArchive, twitchUser } from "./fake-twitch";
 import { endedVideo, type FakeChannel, type FakeYouTube, fakeYouTube, liveVideo } from "./fake-youtube";
 
 const NOW = Date.parse("2026-11-22T00:00:00Z");
@@ -11,10 +12,16 @@ const NASA: FakeChannel = {
   live: ["s1", "s2"],
 };
 const videos = [endedVideo("s1", "2026-11-20T10:00:00Z", 7200), endedVideo("s2", "2026-11-10T10:00:00Z", 3600)];
+const twitchEnv: Env = { ...env, TWITCH_CLIENT_ID: CLIENT_ID, TWITCH_CLIENT_SECRET: CLIENT_SECRET };
 
 let ip = 0;
 /** Each request comes from a new address unless one is given, so the rate limiter stays out of the way. */
-const get = (path: string, yt: FakeYouTube, init: RequestInit & { ip?: string } = {}, testEnv: Env = env) =>
+const get = (
+  path: string,
+  yt: FakeYouTube | FakeTwitch,
+  init: RequestInit & { ip?: string } = {},
+  testEnv: Env = env,
+) =>
   handleRequest(
     new Request(`https://liveinfo.oshi.tw${path}`, {
       ...init,
@@ -207,5 +214,48 @@ describe("GET /api/config", () => {
     const res = await SELF.fetch("https://liveinfo.oshi.tw/api/config");
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ twitch: false });
+  });
+
+  it("reports Twitch as on only when both credentials are set", async () => {
+    const config = async (testEnv: Env) => (await get("/api/config", noYouTube(), {}, testEnv)).json();
+    expect(await config(twitchEnv)).toEqual({ twitch: true });
+    expect(await config({ ...env, TWITCH_CLIENT_ID: CLIENT_ID })).toEqual({ twitch: false });
+  });
+});
+
+describe("Twitch lookups", () => {
+  const user = twitchUser("oshi_tw", "4242", "推しTW");
+  const twitch = () =>
+    fakeTwitch({
+      users: [user],
+      videos: [
+        twitchArchive(user, "901", "2026-11-20T12:00:00Z", "2h0m0s"),
+        twitchArchive(user, "900", "2026-11-18T12:00:00Z", "1h0m0s"),
+      ],
+    });
+
+  it("answers /api/last for a login, ignoring its case", async () => {
+    const res = await get("/api/last/Oshi_TW", twitch(), {}, twitchEnv);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      status: "ended",
+      platform: "twitch",
+      stream: { id: "901", endedAt: "2026-11-20T14:00:00.000Z" },
+    });
+  });
+
+  it("answers /api/recent and caches the result", async () => {
+    const tw = twitch();
+    const first = await get("/api/recent/oshi_tw", tw, {}, twitchEnv);
+    expect(await first.json()).toMatchObject({ platform: "twitch", totalSeconds: 3 * 3600, count: 2 });
+    const calls = tw.requests.length;
+
+    await get("/api/recent/oshi_tw", tw, {}, twitchEnv);
+    expect(tw.requests.length).toBe(calls);
+  });
+
+  it("answers 404 for a login Twitch does not know", async () => {
+    const res = await get("/api/last/nobody_here", twitch(), {}, twitchEnv);
+    expect(res.status).toBe(404);
   });
 });
