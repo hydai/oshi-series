@@ -193,4 +193,4 @@ test/
 
 ## 授權
 
-[MIT](LICENSE)。改寫自開源的「你推系列（oshi-series）」。
+[MIT](LICENSE)。改寫自 starknows 開源的「你推系列」：[starknows/oshi-series](https://github.com/starknows/oshi-series)（MIT），網站頁尾也附上原作連結。

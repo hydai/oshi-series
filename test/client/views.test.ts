@@ -283,6 +283,16 @@ describe("/recent/:account", () => {
   });
 });
 
+describe("footer", () => {
+  it("credits the original oshi-series project", async () => {
+    const { wrapper } = await renderAt("/", twitchOff);
+    const footer = wrapper.find("footer");
+
+    expect(text(footer)).toContain("改寫自 starknows/oshi-series");
+    expect(footer.find('a[href="https://github.com/starknows/oshi-series"]').exists()).toBe(true);
+  });
+});
+
 describe("routing", () => {
   it.each([["/last"], ["/last/"], ["/nowhere"]])("sends %s back home", async (path) => {
     const { router } = await renderAt(path, twitchOff);
