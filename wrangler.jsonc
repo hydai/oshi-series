@@ -1,0 +1,45 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "liveinfo-oshi-tw",
+  "main": "src/worker/index.ts",
+  // The newest date the bundled workerd (1.20261119) knows, so local tests run
+  // with the same runtime behaviour as production.
+  "compatibility_date": "2026-11-19",
+  "workers_dev": false,
+  "preview_urls": false,
+  "routes": [{ "pattern": "liveinfo.oshi.tw", "custom_domain": true }],
+
+  // The Vue app is served as static assets. Only /api/* reaches the Worker;
+  // every other path that is not a file falls back to index.html.
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+
+  // Lookup cache. No id on purpose: the first `wrangler deploy` provisions the
+  // namespace and later deploys keep using it.
+  "kv_namespaces": [{ "binding": "CACHE" }],
+
+  // Per-IP limit on /api/last and /api/recent.
+  "ratelimits": [
+    {
+      "name": "API_RATE_LIMIT",
+      "namespace_id": "1122000801",
+      "simple": { "limit": 30, "period": 60 }
+    }
+  ],
+
+  "vars": {
+    // Sent as the Referer header to the YouTube Data API, so an API key with an
+    // HTTP-referrer restriction for this site keeps working from the Worker.
+    "YOUTUBE_API_REFERER": "https://liveinfo.oshi.tw/"
+  },
+
+  // TWITCH_CLIENT_ID / TWITCH_CLIENT_SECRET are optional secrets: Twitch lookup
+  // is enabled only when both are set.
+  "secrets": { "required": ["YOUTUBE_API_KEY"] },
+
+  "observability": { "enabled": true }
+}
