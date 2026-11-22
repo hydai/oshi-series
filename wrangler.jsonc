@@ -53,9 +53,10 @@
     "YOUTUBE_API_REFERER": "https://liveinfo.oshi.tw/"
   },
 
-  // TWITCH_CLIENT_ID / TWITCH_CLIENT_SECRET are optional secrets: Twitch lookup
-  // is enabled only when both are set.
-  "secrets": { "required": ["YOUTUBE_API_KEY"] },
+  // Deploys are refused while any of these is unset, and `wrangler dev` loads
+  // only these from .dev.vars. Twitch lookup is optional in the code: a site
+  // without it removes the two TWITCH_* names here.
+  "secrets": { "required": ["YOUTUBE_API_KEY", "TWITCH_CLIENT_ID", "TWITCH_CLIENT_SECRET"] },
 
   "observability": { "enabled": true }
 }

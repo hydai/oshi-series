@@ -96,11 +96,12 @@
 ```bash
 npm install
 npx wrangler login
-cp .dev.vars.example .dev.vars   # 填入 YOUTUBE_API_KEY（要開 Twitch 就一併填 Twitch 的兩個值）
+cp .dev.vars.example .dev.vars   # 填入 YOUTUBE_API_KEY、TWITCH_CLIENT_ID、TWITCH_CLIENT_SECRET
 npm run deploy -- --secrets-file .dev.vars
 ```
 
-- `wrangler.jsonc` 把 `YOUTUBE_API_KEY` 列為必要的 secret，所以第一次部署要用 `--secrets-file` 一起上傳；少了它 wrangler 會拒絕部署。若 shell 環境變數裡有同名變數，會蓋過檔案裡的值。
+- `wrangler.jsonc` 把這三個列為必要的 secret（`secrets.required`），所以第一次部署要用 `--secrets-file` 一起上傳；少了任何一個 wrangler 都會拒絕部署。若 shell 環境變數裡有同名變數，會蓋過檔案裡的值。
+- 不提供 Twitch 查詢的話，把 `TWITCH_CLIENT_ID`、`TWITCH_CLIENT_SECRET` 從 `secrets.required` 拿掉即可，程式會自動關閉 Twitch。
 - KV namespace 沒有寫死 ID：第一次 `wrangler deploy` 會自動建立，之後的部署沿用同一個。
 - Durable Object 的類別由 `wrangler.jsonc` 的 `migrations` 在部署時建立，不需要另外設定。
 - `routes` 用 custom domain 綁 `liveinfo.oshi.tw`，部署時會自動建立 DNS 紀錄與憑證；如果已經有同名的 DNS 紀錄要先刪掉。
@@ -110,7 +111,7 @@ npm run deploy -- --secrets-file .dev.vars
 ```bash
 npm run deploy                                  # 建置網頁並部署
 npx wrangler secret put YOUTUBE_API_KEY         # 換金鑰
-npx wrangler secret put TWITCH_CLIENT_ID        # 開啟 Twitch（兩個都要設）
+npx wrangler secret put TWITCH_CLIENT_ID        # 換 Twitch 憑證
 npx wrangler secret put TWITCH_CLIENT_SECRET
 npx wrangler tail                               # 看即時 log
 ```
@@ -125,7 +126,7 @@ npm run dev:worker               # 終端機 1：Worker（API）在 http://local
 npm run dev                      # 終端機 2：網頁在 http://localhost:5173，/api 轉給 8787
 ```
 
-`npm run preview` 會先建置網頁，再用 `wrangler dev` 在 8787 跑完整的網站，最接近正式環境。
+`npm run preview` 會先建置網頁，再用 `wrangler dev` 在 8787 跑完整的網站，最接近正式環境。`wrangler dev` 只會從 `.dev.vars` 讀 `secrets.required` 列出的 secret。
 
 | 指令 | 做什麼 |
 | --- | --- |

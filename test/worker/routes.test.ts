@@ -14,7 +14,7 @@ const NASA: FakeChannel = {
 };
 const videos = [endedVideo("s1", "2026-11-20T10:00:00Z", 7200), endedVideo("s2", "2026-11-10T10:00:00Z", 3600)];
 // The test bindings include fake Twitch credentials (vitest.config.ts); this is a site without them.
-const noTwitchEnv: Env = { ...env, TWITCH_CLIENT_ID: undefined, TWITCH_CLIENT_SECRET: undefined };
+const noTwitchEnv: Env = { ...env, TWITCH_CLIENT_ID: "", TWITCH_CLIENT_SECRET: "" };
 
 /** The Durable Object that answers the lookup `key`, e.g. "youtube:last:@nasa". */
 const coordinator = (key: string) => env.LOOKUPS.get(env.LOOKUPS.idFromName(key));
@@ -399,7 +399,7 @@ describe("GET /api/config", () => {
   it("reports Twitch as on only when both credentials are set", async () => {
     const config = async (testEnv: Env) => (await get("/api/config", noYouTube(), {}, testEnv)).json();
     expect(await config(env)).toEqual({ twitch: true });
-    expect(await config({ ...env, TWITCH_CLIENT_SECRET: undefined })).toEqual({ twitch: false });
+    expect(await config({ ...env, TWITCH_CLIENT_SECRET: "" })).toEqual({ twitch: false });
     expect(await config(noTwitchEnv)).toEqual({ twitch: false });
   });
 });

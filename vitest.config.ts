@@ -13,7 +13,7 @@ const FAKE_SECRETS = {
 
 // Without .dev.vars (e.g. in CI) the plugin looks for secrets.required in the
 // environment and warns when they are missing.
-process.env.YOUTUBE_API_KEY = FAKE_SECRETS.YOUTUBE_API_KEY;
+Object.assign(process.env, FAKE_SECRETS);
 
 // Worker tests run inside workerd with the bindings declared in wrangler.jsonc
 // (local KV and Durable Objects). Outbound HTTP is never real: tests replace

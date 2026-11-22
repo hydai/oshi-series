@@ -1,8 +1,10 @@
 # 本機開發（wrangler dev）用的密鑰。複製成 .dev.vars 再填入；.dev.vars 不會被提交。
 # 第一次部署也可以直接拿它當 --secrets-file，見 README。
+# 三個都列在 wrangler.jsonc 的 secrets.required：wrangler dev 只讀這三個，少了任何一個就不能部署。
 
 YOUTUBE_API_KEY=
 
-# 選用：兩個都填才會開放 Twitch 查詢
-# TWITCH_CLIENT_ID=
-# TWITCH_CLIENT_SECRET=
+# Twitch 應用程式的憑證。網站不提供 Twitch 查詢的話，
+# 把這兩個從 wrangler.jsonc 的 secrets.required 拿掉，這裡也刪掉。
+TWITCH_CLIENT_ID=
+TWITCH_CLIENT_SECRET=
