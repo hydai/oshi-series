@@ -1,12 +1,13 @@
 import { type Account, parseAccount } from "../shared/accounts";
 import type { SiteConfig } from "../shared/api";
-import { apiError, json } from "./http";
+import { apiError, coolingDown, json } from "./http";
 import { type Mode, twitchEnabled } from "./lookup";
 import { clientKey, isCrossSite } from "./requester";
 import { runtime } from "./runtime";
 
 export { DailyAllowance } from "./allowance";
 export { LookupCoordinator } from "./coordinator";
+export { QuotaLedger } from "./quota";
 
 const LOOKUP_PATH = /^\/api\/(last|recent)\/([^/]+)$/;
 const APP_PATH = /^\/(last|recent)\//;
@@ -37,7 +38,9 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
   const key = `${account.platform}:${mode}:${account.id.toLowerCase()}`;
   try {
     const outcome = await env.LOOKUPS.get(env.LOOKUPS.idFromName(key)).lookup(mode, account);
-    return outcome.ok ? json(outcome.result) : apiError(outcome.error);
+    if (outcome.ok) return json(outcome.result);
+    if (outcome.resumesAt !== undefined) return coolingDown(outcome.resumesAt, runtime.now());
+    return apiError(outcome.error);
   } catch (error) {
     console.error(`lookup ${key} failed:`, error);
     return apiError("internal_error");

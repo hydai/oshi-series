@@ -8,6 +8,14 @@ export class LookupError extends Error {
   }
 }
 
+/** The site has spent the day's YouTube units; lookups that need YouTube wait until `resumesAt` (ms). */
+export class CoolingDown extends LookupError {
+  constructor(readonly resumesAt: number) {
+    super("cooling_down");
+    this.name = "CoolingDown";
+  }
+}
+
 const QUOTA_REASONS = new Set(["quotaExceeded", "dailyLimitExceeded"]);
 
 /**

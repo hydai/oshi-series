@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import type { Failure } from "../api";
+import type { FailedLookup } from "../api";
 import { errorText } from "../messages";
 
-const props = defineProps<{ failure: Failure }>();
+const props = defineProps<{ failure: FailedLookup }>();
 const text = computed(() => errorText(props.failure));
 </script>
 

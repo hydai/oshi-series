@@ -154,6 +154,57 @@ describe("sharing lookups", () => {
   });
 });
 
+describe("YouTube's daily units", () => {
+  const ledger = () => env.QUOTA.get(env.QUOTA.idFromName("youtube"));
+  const unitsSpent = () =>
+    runInDurableObject(ledger(), async (_, state) => (await state.storage.get<{ used: number }>("usage"))?.used ?? 0);
+  // NOW is 16:00 on the 21st in California; YouTube's quota resets at 08:00 UTC.
+  const RESET = "2026-11-22T08:00:00.000Z";
+
+  it("charges every YouTube API call to the site's daily units", async () => {
+    await get("/api/last/@NASA", fakeYouTube({ channels: [NASA], videos }));
+    expect(await unitsSpent()).toBe(3); // channels.list, one playlist page, one videos.list
+  });
+
+  it("cools down a lookup that needs YouTube once the day's units are spent", async () => {
+    await ledger().exhaust(NOW, 10_000);
+    const yt = fakeYouTube({ channels: [NASA], videos });
+    const res = await get("/api/last/@NASA", yt);
+
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ error: "cooling_down", resumesAt: RESET });
+    expect(res.headers.get("retry-after")).toBe(String(8 * 60 * 60));
+    expect(yt.count()).toBe(0);
+  });
+
+  it("keeps serving stored answers while cooling down", async () => {
+    const yt = fakeYouTube({ channels: [NASA], videos });
+    await get("/api/last/@NASA", yt);
+    await ledger().exhaust(NOW, 10_000);
+
+    const res = await get("/api/last/@NASA", yt);
+    expect(res.status).toBe(200);
+  });
+
+  it("cools down when YouTube says the quota is gone, and stops asking it", async () => {
+    const exhausted = fakeYouTube({ channels: [NASA], videos, failWith: { status: 403, reason: "quotaExceeded" } });
+    const res = await get("/api/last/@NASA", exhausted);
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ error: "cooling_down", resumesAt: RESET });
+
+    const yt = fakeYouTube({ channels: [NASA], videos });
+    expect((await get("/api/recent/@NASA", yt)).status).toBe(503);
+    expect(yt.count()).toBe(0);
+  });
+
+  it("leaves Twitch lookups alone", async () => {
+    await ledger().exhaust(NOW, 10_000);
+    const user = twitchUser("oshi_tw", "4242", "推しTW");
+    const res = await get("/api/last/oshi_tw", fakeTwitch({ users: [user] }));
+    expect(res.status).toBe(200);
+  });
+});
+
 describe("errors", () => {
   it.each([
     ["an account that is neither a handle nor a login", "/api/last/NASA%21"],
@@ -168,13 +219,6 @@ describe("errors", () => {
     const res = await get("/api/recent/@nobody", fakeYouTube({ channels: [NASA], videos }));
     expect(res.status).toBe(404);
     expect(await res.json()).toEqual({ error: "not_found" });
-  });
-
-  it("answers 503 when the YouTube quota is used up", async () => {
-    const yt = fakeYouTube({ channels: [NASA], videos, failWith: { status: 403, reason: "quotaExceeded" } });
-    const res = await get("/api/last/@NASA", yt);
-    expect(res.status).toBe(503);
-    expect(await res.json()).toEqual({ error: "quota_exceeded" });
   });
 
   it("answers 502 when YouTube fails, and does not keep the failure", async () => {

@@ -8,12 +8,12 @@ const STATUS: Record<ApiErrorCode, number> = {
   daily_limit: 429,
   internal_error: 500,
   upstream_error: 502,
-  quota_exceeded: 503,
+  cooling_down: 503,
   twitch_disabled: 503,
   not_configured: 503,
 };
 
-/** API responses are never cached by browsers; lookups are cached in KV instead. */
+/** API responses are never cached by browsers; answers are kept by the lookup coordinators instead. */
 export function json(body: unknown, status = 200, headers: Record<string, string> = {}): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -23,4 +23,12 @@ export function json(body: unknown, status = 200, headers: Record<string, string
 
 export function apiError(code: ApiErrorCode, headers?: Record<string, string>): Response {
   return json({ error: code }, STATUS[code], headers);
+}
+
+/** The day's YouTube units are spent: try again at `resumesAt` (ms), when YouTube resets its quota. */
+export function coolingDown(resumesAt: number, now: number): Response {
+  const seconds = Math.max(1, Math.ceil((resumesAt - now) / 1000));
+  return json({ error: "cooling_down", resumesAt: new Date(resumesAt).toISOString() }, STATUS.cooling_down, {
+    "retry-after": String(seconds),
+  });
 }

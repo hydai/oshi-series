@@ -53,7 +53,7 @@ export type ApiErrorCode =
   | "forbidden"
   | "not_found"
   | "daily_limit"
-  | "quota_exceeded"
+  | "cooling_down"
   | "twitch_disabled"
   | "not_configured"
   | "upstream_error"
@@ -62,4 +62,6 @@ export type ApiErrorCode =
 
 export interface ApiError {
   error: ApiErrorCode;
+  /** With "cooling_down": when YouTube's quota resets and lookups resume (ISO 8601). */
+  resumesAt?: string;
 }

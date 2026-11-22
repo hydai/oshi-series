@@ -26,21 +26,28 @@
   // One LookupCoordinator per lookup ("youtube:last:@nasa"): it holds the
   // answer and makes visitors asking at the same time share one API lookup.
   // One DailyAllowance per visitor: it counts the day's lookups.
+  // One QuotaLedger for the whole site: it counts the YouTube API units spent.
   "durable_objects": {
     "bindings": [
       { "name": "LOOKUPS", "class_name": "LookupCoordinator" },
-      { "name": "ALLOWANCES", "class_name": "DailyAllowance" }
+      { "name": "ALLOWANCES", "class_name": "DailyAllowance" },
+      { "name": "QUOTA", "class_name": "QuotaLedger" }
     ]
   },
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["LookupCoordinator"] },
-    { "tag": "v2", "new_sqlite_classes": ["DailyAllowance"] }
+    { "tag": "v2", "new_sqlite_classes": ["DailyAllowance"] },
+    { "tag": "v3", "new_sqlite_classes": ["QuotaLedger"] }
   ],
 
   "vars": {
     // Lookups (/api/last, /api/recent) one visitor may make per day, counted
     // per IPv4 address or IPv6 /64 and reset at midnight Taiwan time.
     "DAILY_LOOKUP_LIMIT": "30",
+    // YouTube API units (one per call) the whole site may spend per day. The
+    // day ends at midnight Pacific time, when YouTube resets its quota. Lower
+    // it if the Google Cloud project's quota is shared with something else.
+    "YOUTUBE_DAILY_UNITS": "10000",
     // Sent as the Referer header to the YouTube Data API, so an API key with an
     // HTTP-referrer restriction for this site keeps working from the Worker.
     "YOUTUBE_API_REFERER": "https://liveinfo.oshi.tw/"

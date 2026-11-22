@@ -10,6 +10,8 @@ export interface YouTubeApiOptions {
   /** Sent as Referer, for keys restricted to HTTP referrers. */
   referer?: string;
   fetch: typeof fetch;
+  /** Runs before every call (each costs a quota unit); throwing stops the call. */
+  beforeCall?: () => Promise<void>;
 }
 
 export interface PlaylistPage {
@@ -82,6 +84,7 @@ export class YouTubeApi {
     const headers: Record<string, string> = { "X-Goog-Api-Key": this.options.apiKey };
     if (this.options.referer) headers.Referer = this.options.referer;
 
+    await this.options.beforeCall?.();
     let res: Response;
     try {
       res = await this.options.fetch(url, { headers, signal: AbortSignal.timeout(TIMEOUT_MS) });

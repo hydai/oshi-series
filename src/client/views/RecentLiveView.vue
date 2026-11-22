@@ -2,7 +2,7 @@
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { parseAccount } from "../../shared/accounts";
 import type { RecentLive } from "../../shared/api";
-import { type Failure, fetchRecentLive } from "../api";
+import { type FailedLookup, fetchRecentLive } from "../api";
 import CounterDisplay from "../components/CounterDisplay.vue";
 import FailureNotice from "../components/FailureNotice.vue";
 import LinkList from "../components/LinkList.vue";
@@ -17,19 +17,19 @@ const props = defineProps<{ account: string }>();
 // Twitch logins are case-insensitive; links and lookups use the lowercase form.
 const account = parseAccount(props.account)?.id ?? props.account;
 const result = ref<RecentLive | null>(null);
-const failure = ref<Failure | null>(null);
+const failure = ref<FailedLookup | null>(null);
 // The answer can arrive after the visitor has moved on; it must not touch the page then.
 let mounted = true;
 
 onMounted(async () => {
   if (!parseAccount(props.account)) {
-    failure.value = "invalid_account";
+    failure.value = { error: "invalid_account" };
     return;
   }
   const res = await fetchRecentLive(account);
   if (!mounted) return;
   if (!res.ok) {
-    failure.value = res.error;
+    failure.value = res;
     return;
   }
   result.value = res.data;

@@ -1,7 +1,7 @@
 import type { Account } from "../shared/accounts";
 import type { ApiErrorCode, LastLive, RecentLive } from "../shared/api";
 import { kvCache } from "./cache";
-import { LookupError, UpstreamError } from "./errors";
+import { CoolingDown, LookupError, UpstreamError } from "./errors";
 import { runtime } from "./runtime";
 import { twitchLastLive, twitchRecentLive } from "./twitch";
 import { youtubeLastLive, youtubeRecentLive } from "./youtube";
@@ -16,6 +16,8 @@ const LIVE_TTL = 60;
 const LAST_TTL = 5 * 60;
 const NONE_TTL = 60 * 60;
 const RECENT_TTL = 60 * 60;
+
+const DEFAULT_DAILY_UNITS = 10_000;
 
 /** Seconds an answer stays fresh. */
 export function answerTtl(mode: Mode, result: LookupResult): number {
@@ -43,16 +45,31 @@ export async function runLookup(mode: Mode, account: Account, env: Env): Promise
   }
 
   if (!env.YOUTUBE_API_KEY) throw new LookupError("not_configured");
+  // Every call is charged to the site's daily units first (see quota.ts).
+  const ledger = env.QUOTA.get(env.QUOTA.idFromName("youtube"));
+  const limit = Number.parseInt(env.YOUTUBE_DAILY_UNITS, 10) || DEFAULT_DAILY_UNITS;
   const youtube = {
     api: new YouTubeApi({
       apiKey: env.YOUTUBE_API_KEY,
       referer: env.YOUTUBE_API_REFERER || undefined,
       fetch: runtime.fetch,
+      beforeCall: async () => {
+        const spend = await ledger.spend(runtime.now(), 1, limit);
+        if (!spend.ok) throw new CoolingDown(spend.resumesAt);
+      },
     }),
     cache,
     now,
   };
-  return mode === "last" ? youtubeLastLive(account.id, youtube) : youtubeRecentLive(account.id, youtube);
+  try {
+    return mode === "last" ? await youtubeLastLive(account.id, youtube) : await youtubeRecentLive(account.id, youtube);
+  } catch (error) {
+    // YouTube ran out first (its count includes calls this ledger never saw): stop until the reset.
+    if (error instanceof UpstreamError && error.quotaExceeded) {
+      throw new CoolingDown(await ledger.exhaust(runtime.now(), limit));
+    }
+    throw error;
+  }
 }
 
 /** The error code to answer a failed lookup with. Unexpected failures are logged. */
@@ -60,7 +77,7 @@ export function failureCode(error: unknown): ApiErrorCode {
   if (error instanceof LookupError) return error.code;
   if (error instanceof UpstreamError) {
     console.error(error.message);
-    return error.quotaExceeded ? "quota_exceeded" : "upstream_error";
+    return "upstream_error";
   }
   console.error("lookup failed:", error);
   return "internal_error";

@@ -181,6 +181,29 @@ describe("youtubeLastLive", () => {
     expect(error).toMatchObject({ status: 500, quotaExceeded: false });
   });
 
+  it("asks before every call, and makes no more once refused", async () => {
+    const yt = fakeYouTube({
+      channels: [{ ...NASA, live: ["s"] }],
+      videos: [endedVideo("s", "2026-11-20T10:00:00Z", 60)],
+    });
+    let allowed = 2;
+    const api = new YouTubeApi({
+      apiKey: "test-key",
+      fetch: yt.fetch,
+      beforeCall: async () => {
+        if (allowed-- <= 0) throw new LookupError("cooling_down");
+      },
+    });
+
+    const error = await youtubeLastLive("@NASA", { api, cache: kvCache(env.CACHE), now: NOW }).catch(
+      (e: unknown) => e,
+    );
+    expect(error).toBeInstanceOf(LookupError);
+    expect((error as LookupError).code).toBe("cooling_down");
+    // channels.list and the playlist page went out; videos.list did not.
+    expect(yt.count()).toBe(2);
+  });
+
   it("turns a network failure into an upstream error", async () => {
     const api = new YouTubeApi({
       apiKey: "test-key",

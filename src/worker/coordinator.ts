@@ -1,9 +1,13 @@
 import { DurableObject } from "cloudflare:workers";
 import type { Account } from "../shared/accounts";
 import type { ApiErrorCode } from "../shared/api";
+import { CoolingDown } from "./errors";
 import { answerTtl, failureCode, type LookupResult, type Mode, runLookup } from "./lookup";
 
-export type LookupOutcome = { ok: true; result: LookupResult } | { ok: false; error: ApiErrorCode };
+export type LookupOutcome =
+  | { ok: true; result: LookupResult }
+  /** `resumesAt` (ms) comes with "cooling_down": when YouTube's quota resets. */
+  | { ok: false; error: ApiErrorCode; resumesAt?: number };
 
 interface StoredAnswer {
   result: LookupResult;
@@ -39,7 +43,8 @@ export class LookupCoordinator extends DurableObject<Env> {
     try {
       result = await runLookup(mode, account, this.env);
     } catch (error) {
-      return { ok: false, error: failureCode(error) };
+      const resumesAt = error instanceof CoolingDown ? { resumesAt: error.resumesAt } : {};
+      return { ok: false, error: failureCode(error), ...resumesAt };
     }
     const expiresAt = Date.now() + answerTtl(mode, result) * 1000;
     await this.ctx.storage.put<StoredAnswer>("answer", { result, expiresAt });

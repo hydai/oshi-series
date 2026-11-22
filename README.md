@@ -33,6 +33,7 @@
                     └─ LookupCoordinator（Durable Object，每個查詢一個，例如 youtube:last:@nasa）
                           ├─ 保存答案到期為止，所有訪客共用
                           ├─ Workers KV（CACHE）：帳號 → 頻道、Twitch token
+                          ├─ QuotaLedger（Durable Object，全站一個）每天 10,000 單位 YouTube 配額
                           ├─ YouTube Data API v3
                           └─ Twitch Helix API（選用）
 ```
@@ -50,6 +51,15 @@
 ### 每天的查詢次數
 
 每個 IP（IPv6 以 /64 計）每天最多查 30 次（`wrangler.jsonc` 的 `DAILY_LOOKUP_LIMIT`），台灣時間午夜重新計算。計數放在每個訪客一個的 DailyAllowance（Durable Object），所以不論請求進到哪個機房都算得準。直接拿到現成答案的查詢也算一次；格式錯誤、或網站沒設定好而無法查的請求不算。
+
+### 全站每日配額與冷卻
+
+每次呼叫 YouTube API（1 單位配額）之前，都先向全站唯一的 QuotaLedger（Durable Object）記帳。一天最多花 10,000 單位（`wrangler.jsonc` 的 `YOUTUBE_DAILY_UNITS`），和 YouTube 一樣在太平洋時間午夜（台灣下午 3 或 4 點）重新計算。用完之後進入冷卻：
+
+- 已經有現成答案、還沒過期的頻道照常顯示。
+- 需要問 YouTube 的查詢回 503 `cooling_down`，網頁顯示「冷卻中」和台灣時間幾點恢復；不會再呼叫 YouTube。
+- Twitch 查詢不受影響。
+- 如果 YouTube 自己先回報配額用完（例如同一個 Google Cloud 專案還有別的服務在用），也會立刻進入冷卻到重置為止。共用專案時，把 `YOUTUBE_DAILY_UNITS` 調低到這個網站分得到的量。
 
 ### YouTube 資料怎麼來
 
@@ -133,6 +143,7 @@ src/
 │   ├── coordinator.ts  LookupCoordinator：保存答案、讓同一個查詢只跑一次
 │   ├── lookup.ts       實際查詢 YouTube／Twitch、答案保留多久、錯誤對應
 │   ├── allowance.ts    DailyAllowance：每個訪客每天的查詢次數
+│   ├── quota.ts        QuotaLedger：全站每天花掉的 YouTube 配額
 │   ├── requester.ts    訪客位址（IPv6 /64）、擋其他網站的請求
 │   ├── runtime.ts      對外請求與時間（測試時替換）
 │   ├── cache.ts        KV 快取
@@ -164,13 +175,13 @@ test/
 | 405 | `method_not_allowed` | 不是 `GET` |
 | 429 | `daily_limit` | 同一個 IP 今天已經查滿次數（台灣時間午夜重新計算） |
 | 502 | `upstream_error` | YouTube／Twitch 回應錯誤或連不上 |
-| 503 | `quota_exceeded` | 今天的 YouTube 配額用完 |
+| 503 | `cooling_down` | 今天的 YouTube 配額用完，冷卻中；回應帶 `resumesAt`（恢復時間）與 `Retry-After` |
 | 503 | `twitch_disabled` | 沒有設定 Twitch 憑證 |
 | 503 | `not_configured` | 沒有設定 YouTube 金鑰 |
 
 ## 已知限制
 
-- 每個 IP 每天 30 次查詢，但沒有全站的每日上限：有人刻意用很多個 IP 查詢不同頻道，仍可能在一天內用完 YouTube 配額，之後到重置前沒有快取的查詢都會顯示額度已用完。
+- 有人刻意用很多個 IP 查詢不同頻道，仍可能在一天內用完全站的 10,000 單位；之後到重置前，沒有現成答案的 YouTube 查詢都會顯示「冷卻中」。
 - 「最近開了多久」只算最近 30 天內**開始**、而且已經結束的 YouTube 直播，最多看直播清單上最新的 200 支（含待機室）；正在直播的那場不算。
 - Twitch 的資料來自直播存檔：沒開存檔或存檔過期的直播查不到。「最近開了多久」最多算 100 支存檔，而且會把進行中直播的存檔算進去。
 - 會員限定直播不在「直播」播放清單裡，不會被計入。頻道沒有「直播」播放清單時只看最新 50 支上傳影片，這時首播也可能被當成直播。
