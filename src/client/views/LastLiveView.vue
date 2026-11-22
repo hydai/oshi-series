@@ -8,6 +8,7 @@ import FailureNotice from "../components/FailureNotice.vue";
 import LinkList from "../components/LinkList.vue";
 import { elapsedSince, pad2, shortUrl } from "../format";
 import { donationLinks, followLink, siteLink } from "../links";
+import { staleNote } from "../messages";
 import { MODES } from "../modes";
 import { PLATFORMS } from "../platforms";
 import type { CounterPart, LinkItem } from "../types";
@@ -48,6 +49,8 @@ onUnmounted(() => {
 });
 
 const platformLabel = computed(() => (result.value ? PLATFORMS[result.value.platform].label : ""));
+// Set when this is the last answer from before a YouTube cool-down.
+const stale = computed(() => result.value?.coolingDownUntil ?? null);
 
 const counter = computed<CounterPart[][]>(() => {
   if (result.value?.status !== "ended") return [];
@@ -97,7 +100,10 @@ const shortcuts = computed(() =>
     >查詢中…</p>
 
     <template v-else-if="result.status === 'ended'">
-      <h1 class="lead">距離 <strong>{{ result.channel.name }}</strong> 上次在 {{ platformLabel }} 開台已經過了</h1>
+      <h1 class="lead">距離 <strong>{{ result.channel.name }}</strong> 上次在 {{ platformLabel }} 開台已經過了<span
+        v-if="stale"
+        class="stale-mark"
+      >*</span></h1>
       <CounterDisplay
         :groups="counter"
         ticking
@@ -105,7 +111,10 @@ const shortcuts = computed(() =>
     </template>
 
     <template v-else-if="result.status === 'live'">
-      <h1 class="lead"><strong>{{ result.channel.name }}</strong> 正在 {{ platformLabel }} 直播中</h1>
+      <h1 class="lead"><strong>{{ result.channel.name }}</strong> 正在 {{ platformLabel }} 直播中<span
+        v-if="stale"
+        class="stale-mark"
+      >*</span></h1>
       <a
         v-if="result.stream.thumbnail"
         class="thumbnail"
@@ -127,8 +136,15 @@ const shortcuts = computed(() =>
     <h1
       v-else
       class="lead"
-    ><strong>{{ result.channel.name }}</strong> 目前沒有直播紀錄</h1>
+    ><strong>{{ result.channel.name }}</strong> 目前沒有直播紀錄<span
+      v-if="stale"
+      class="stale-mark"
+    >*</span></h1>
 
+    <p
+      v-if="stale"
+      class="footnote"
+    >{{ staleNote(stale) }}</p>
     <LinkList
       v-if="links.length > 0"
       :items="links"

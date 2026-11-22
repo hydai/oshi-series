@@ -38,6 +38,9 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
   const key = `${account.platform}:${mode}:${account.id.toLowerCase()}`;
   try {
     const outcome = await env.LOOKUPS.get(env.LOOKUPS.idFromName(key)).lookup(mode, account);
+    if (outcome.ok && outcome.coolingDownUntil !== undefined) {
+      return json({ ...outcome.result, coolingDownUntil: new Date(outcome.coolingDownUntil).toISOString() });
+    }
     if (outcome.ok) return json(outcome.result);
     if (outcome.resumesAt !== undefined) return coolingDown(outcome.resumesAt, runtime.now());
     return apiError(outcome.error);

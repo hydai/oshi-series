@@ -8,6 +8,7 @@ import FailureNotice from "../components/FailureNotice.vue";
 import LinkList from "../components/LinkList.vue";
 import { formatDuration, pad2, shortUrl, splitDuration } from "../format";
 import { donationLinks, followLink, siteLink } from "../links";
+import { staleNote } from "../messages";
 import { MODES } from "../modes";
 import { PLATFORMS } from "../platforms";
 import type { CounterPart, LinkItem } from "../types";
@@ -41,6 +42,8 @@ onUnmounted(() => {
 });
 
 const platformLabel = computed(() => (result.value ? PLATFORMS[result.value.platform].label : ""));
+// Set when this is the last answer from before a YouTube cool-down.
+const stale = computed(() => result.value?.coolingDownUntil ?? null);
 
 const counter = computed<CounterPart[][]>(() => {
   if (!result.value) return [];
@@ -82,7 +85,10 @@ const shortcuts = computed(() =>
     >查詢中…</p>
 
     <template v-else-if="result.count > 0">
-      <h1 class="lead">最近 {{ result.days }} 天內 <strong>{{ result.channel.name }}</strong> 在 {{ platformLabel }} 總共直播了</h1>
+      <h1 class="lead">最近 {{ result.days }} 天內 <strong>{{ result.channel.name }}</strong> 在 {{ platformLabel }} 總共直播了<span
+        v-if="stale"
+        class="stale-mark"
+      >*</span></h1>
       <CounterDisplay :groups="counter" />
       <p class="note">共 {{ result.count }} 場</p>
     </template>
@@ -90,8 +96,15 @@ const shortcuts = computed(() =>
     <h1
       v-else
       class="lead"
-    >最近 {{ result.days }} 天內 <strong>{{ result.channel.name }}</strong> 在 {{ platformLabel }} 沒有直播</h1>
+    >最近 {{ result.days }} 天內 <strong>{{ result.channel.name }}</strong> 在 {{ platformLabel }} 沒有直播<span
+      v-if="stale"
+      class="stale-mark"
+    >*</span></h1>
 
+    <p
+      v-if="stale"
+      class="footnote"
+    >{{ staleNote(stale) }}</p>
     <LinkList
       v-if="links.length > 0"
       :items="links"

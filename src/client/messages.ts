@@ -1,4 +1,5 @@
 import type { FailedLookup, Failure } from "./api";
+import { taipeiTime } from "./format";
 
 export interface FailureText {
   title: string;
@@ -19,17 +20,13 @@ const ERROR_TEXT: Record<Failure, FailureText> = {
   network_error: { title: "連線失敗", detail: "請檢查網路後再試" },
 };
 
-const TAIPEI_TIME = new Intl.DateTimeFormat("zh-TW", {
-  timeZone: "Asia/Taipei",
-  hour: "2-digit",
-  minute: "2-digit",
-  hourCycle: "h23",
-});
-
 export function errorText(failure: FailedLookup): FailureText {
   if (failure.error === "cooling_down" && failure.resumesAt) {
-    const time = TAIPEI_TIME.format(new Date(failure.resumesAt));
-    return { title: "冷卻中", detail: `今天的 YouTube 查詢額度用完了，台灣時間 ${time} 恢復` };
+    return { title: "冷卻中", detail: `今天的 YouTube 查詢額度用完了，台灣時間 ${taipeiTime(failure.resumesAt)} 恢復` };
   }
   return ERROR_TEXT[failure.error] ?? ERROR_TEXT.internal_error;
 }
+
+/** The footnote for an answer shown from before a cool-down. */
+export const staleNote = (coolingDownUntil: string): string =>
+  `* YouTube 查詢冷卻中，這是先前查到的結果，台灣時間 ${taipeiTime(coolingDownUntil)} 後更新`;

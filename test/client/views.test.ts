@@ -91,6 +91,19 @@ describe("/last/:account", () => {
     expect(text(wrapper.find('[role="timer"]'))).toBe("3 天 04 時 12 分 10 秒");
   });
 
+  it("marks the last answer with a * while the site cools down", async () => {
+    const stale: LastLive = { ...ended, coolingDownUntil: "2026-11-22T08:00:00.000Z" };
+    const { wrapper } = await renderAt("/last/@NASA", { "/api/last/@NASA": { status: 200, body: stale } });
+
+    expect(text(wrapper.find("h1"))).toBe("距離 NASA 上次在 YouTube 開台已經過了*");
+    expect(text(wrapper.find(".footnote"))).toBe("* YouTube 查詢冷卻中，這是先前查到的結果，台灣時間 16:00 後更新");
+  });
+
+  it("adds no footnote to a fresh answer", async () => {
+    const { wrapper } = await renderAt("/last/@NASA", { "/api/last/@NASA": { status: 200, body: ended } });
+    expect(wrapper.find(".footnote").exists()).toBe(false);
+  });
+
   it("links to the channel, the last stream and a donation page", async () => {
     const { wrapper } = await renderAt("/last/@NASA", { "/api/last/@NASA": { status: 200, body: ended } });
     const hrefs = wrapper.findAll("a").map((a) => a.attributes("href"));
@@ -238,6 +251,14 @@ describe("/recent/:account", () => {
     await flushPromises();
 
     expect(document.title).toBe("你推最近開了多久？");
+  });
+
+  it("marks the last 30-day total with a * while the site cools down", async () => {
+    const stale: RecentLive = { ...recent, coolingDownUntil: "2026-11-22T08:00:00.000Z" };
+    const { wrapper } = await renderAt("/recent/@NASA", { "/api/recent/@NASA": { status: 200, body: stale } });
+
+    expect(text(wrapper.find("h1"))).toBe("最近 30 天內 NASA 在 YouTube 總共直播了*");
+    expect(text(wrapper.find(".footnote"))).toContain("台灣時間 16:00 後更新");
   });
 
   it("points to the last-live page when nothing was streamed in the window", async () => {

@@ -26,14 +26,25 @@ export interface EndedStream {
   endedAt: string;
 }
 
+/** Every answer may come from before a cool-down. */
+export interface Freshness {
+  /**
+   * Set when the site is out of YouTube quota and this is the last answer it
+   * had: when fresh lookups resume (ISO 8601).
+   */
+  coolingDownUntil?: string;
+}
+
 /** GET /api/last/:account */
-export type LastLive =
-  | { status: "live"; platform: Platform; channel: Channel; stream: LiveStream; donations: Donation[] }
-  | { status: "ended"; platform: Platform; channel: Channel; stream: EndedStream; donations: Donation[] }
-  | { status: "none"; platform: Platform; channel: Channel; donations: Donation[] };
+export type LastLive = Freshness &
+  (
+    | { status: "live"; platform: Platform; channel: Channel; stream: LiveStream; donations: Donation[] }
+    | { status: "ended"; platform: Platform; channel: Channel; stream: EndedStream; donations: Donation[] }
+    | { status: "none"; platform: Platform; channel: Channel; donations: Donation[] }
+  );
 
 /** GET /api/recent/:account */
-export interface RecentLive {
+export interface RecentLive extends Freshness {
   platform: Platform;
   channel: Channel;
   days: number;

@@ -19,6 +19,13 @@ const noTwitchEnv: Env = { ...env, TWITCH_CLIENT_ID: undefined, TWITCH_CLIENT_SE
 /** The Durable Object that answers the lookup `key`, e.g. "youtube:last:@nasa". */
 const coordinator = (key: string) => env.LOOKUPS.get(env.LOOKUPS.idFromName(key));
 
+/** Moves the stored answer for `key` past its lifetime, `ago` ms ago, as if time had passed. */
+const expire = (key: string, ago = 1000) =>
+  runInDurableObject(coordinator(key), async (_, state) => {
+    const answer = await state.storage.get<{ expiresAt: number }>("answer");
+    await state.storage.put("answer", { ...answer, expiresAt: Date.now() - ago });
+  });
+
 let ip = 0;
 /**
  * Sends a request to the Worker, with every outbound call (the Durable
@@ -126,14 +133,22 @@ describe("sharing lookups", () => {
     expect(yt.count()).toBe(3);
   });
 
-  it("drops an expired answer, so the next visitor gets a fresh one", async () => {
+  it("asks YouTube again once the answer has expired", async () => {
     const yt = fakeYouTube({ channels: [NASA], videos });
     await get("/api/last/@NASA", yt);
     const lookups = yt.count("videos");
 
-    expect(await runDurableObjectAlarm(coordinator("youtube:last:@nasa"))).toBe(true);
+    await expire("youtube:last:@nasa");
     await get("/api/last/@NASA", yt);
     expect(yt.count("videos")).toBe(lookups + 1);
+  });
+
+  it("never deletes an answer, so a cool-down always has one to show", async () => {
+    await get("/api/last/@NASA", fakeYouTube({ channels: [NASA], videos }));
+    const stub = coordinator("youtube:last:@nasa");
+
+    await runDurableObjectAlarm(stub); // whatever is scheduled, if anything
+    expect(await runInDurableObject(stub, (_, state) => state.storage.get("answer"))).toBeDefined();
   });
 
   it.each([
@@ -141,13 +156,13 @@ describe("sharing lookups", () => {
     ["an ended stream", "last", videos, 5 * 60],
     ["a channel that never streamed", "last", [], 60 * 60],
     ["a 30-day total", "recent", videos, 60 * 60],
-  ] as const)("keeps %s for its documented time", async (_, mode, streams, seconds) => {
+  ] as const)("keeps %s fresh for its documented time", async (_, mode, streams, seconds) => {
     const yt = fakeYouTube({ channels: [{ ...NASA, live: streams.map((v) => v.id) }], videos: [...streams] });
     await get(`/api/${mode}/@NASA`, yt);
 
     const left = await runInDurableObject(coordinator(`youtube:${mode}:@nasa`), async (_, state) => {
-      const alarm = await state.storage.getAlarm();
-      return alarm === null ? null : (alarm - Date.now()) / 1000;
+      const answer = await state.storage.get<{ expiresAt: number }>("answer");
+      return answer ? (answer.expiresAt - Date.now()) / 1000 : null;
     });
     expect(left).toBeGreaterThan(seconds - 10);
     expect(left).toBeLessThanOrEqual(seconds + 1);
@@ -177,13 +192,37 @@ describe("YouTube's daily units", () => {
     expect(yt.count()).toBe(0);
   });
 
-  it("keeps serving stored answers while cooling down", async () => {
+  it("keeps serving answers that are still fresh, unmarked, while cooling down", async () => {
     const yt = fakeYouTube({ channels: [NASA], videos });
     await get("/api/last/@NASA", yt);
     await ledger().exhaust(NOW, 10_000);
 
     const res = await get("/api/last/@NASA", yt);
     expect(res.status).toBe(200);
+    expect(await res.json()).not.toHaveProperty("coolingDownUntil");
+  });
+
+  it("shows the last answer, marked as old, however long ago it expired", async () => {
+    const yt = fakeYouTube({ channels: [NASA], videos });
+    const fresh = await (await get("/api/last/@NASA", yt)).json<object>();
+    await expire("youtube:last:@nasa", 90 * 24 * 60 * 60 * 1000);
+    await ledger().exhaust(NOW, 10_000);
+    const calls = yt.count();
+
+    const res = await get("/api/last/@NASA", yt);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ...fresh, coolingDownUntil: RESET });
+    expect(yt.count()).toBe(calls);
+  });
+
+  it("falls back to the last answer when YouTube itself says the quota is gone", async () => {
+    const fresh = await (await get("/api/recent/@NASA", fakeYouTube({ channels: [NASA], videos }))).json<object>();
+    await expire("youtube:recent:@nasa");
+
+    const exhausted = fakeYouTube({ channels: [NASA], videos, failWith: { status: 403, reason: "quotaExceeded" } });
+    const res = await get("/api/recent/@NASA", exhausted);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ...fresh, coolingDownUntil: RESET });
   });
 
   it("cools down when YouTube says the quota is gone, and stops asking it", async () => {

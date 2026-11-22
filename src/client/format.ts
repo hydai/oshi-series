@@ -33,6 +33,16 @@ export function formatDuration(totalSeconds: number): string {
 
 export const pad2 = (n: number) => String(n).padStart(2, "0");
 
+const TAIPEI_TIME = new Intl.DateTimeFormat("zh-TW", {
+  timeZone: "Asia/Taipei",
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
+});
+
+/** The time of day in Taiwan, e.g. "16:00". */
+export const taipeiTime = (iso: string): string => TAIPEI_TIME.format(new Date(iso));
+
 /** A link's text without the scheme, "www." or a trailing slash. */
 export function shortUrl(url: string): string {
   return url.replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/$/, "");

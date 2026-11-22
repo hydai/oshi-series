@@ -130,6 +130,20 @@ h1 {
   text-wrap: balance;
 }
 
+/* An answer from before a YouTube cool-down: "*" after the headline, footnote below. */
+.stale-mark {
+  color: var(--muted);
+  margin-left: 0.1em;
+}
+
+.footnote {
+  max-width: 28rem;
+  margin-bottom: 1.5rem;
+  font-size: 0.8125rem;
+  color: var(--muted);
+  text-wrap: balance;
+}
+
 /* ---- Home ---- */
 
 .platforms {
