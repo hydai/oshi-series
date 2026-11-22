@@ -1,0 +1,319 @@
+/* The oshi.tw look: white page, system fonts, #333 text, centred content,
+   thin-underlined links and grey arrows. */
+
+:root {
+  --text: #333;
+  --muted: #888;
+  --faint: #aaa;
+  --line: #ddd;
+  --link: #555;
+  --strong: #000;
+  --warn: #b5413b;
+  color-scheme: light;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, "PingFang TC", "Noto Sans TC",
+    "Microsoft JhengHei", sans-serif;
+  color: var(--text);
+  background: #fff;
+  line-height: 1.6;
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+button,
+input {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+:focus-visible {
+  outline: 1px solid var(--faint);
+  outline-offset: 4px;
+}
+
+a,
+.submit,
+.example {
+  color: var(--link);
+  text-decoration: none;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 1px;
+  transition:
+    color 0.2s,
+    border-color 0.2s;
+}
+
+a:hover,
+a:focus-visible,
+.submit:hover,
+.submit:focus-visible,
+.example:hover,
+.example:focus-visible {
+  color: var(--strong);
+  border-color: var(--strong);
+}
+
+.arrow {
+  color: var(--faint);
+  margin: 0 0.5rem;
+}
+
+/* ---- Page ---- */
+
+.page {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 3rem 1rem 2rem;
+  text-align: center;
+}
+
+h1 {
+  font-size: 2rem;
+  font-weight: 600;
+  line-height: 1.3;
+  margin-bottom: 2rem;
+  text-wrap: balance;
+}
+
+.lead {
+  max-width: 32rem;
+  font-size: 1.25rem;
+  font-weight: 400;
+  line-height: 1.7;
+  color: var(--link);
+  margin-bottom: 1rem;
+}
+
+.lead strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.status {
+  color: var(--faint);
+  font-size: 1.125rem;
+}
+
+.note {
+  color: var(--muted);
+  margin: -1rem 0 2rem;
+  text-wrap: balance;
+}
+
+/* ---- Home ---- */
+
+.platforms {
+  display: flex;
+  gap: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.platforms button {
+  color: var(--faint);
+  padding-bottom: 1px;
+  border-bottom: 1px solid transparent;
+  transition:
+    color 0.2s,
+    border-color 0.2s;
+}
+
+.platforms button:hover {
+  color: var(--text);
+}
+
+.platforms button[aria-pressed="true"] {
+  color: var(--text);
+  border-color: var(--text);
+}
+
+.lookup {
+  display: flex;
+  align-items: baseline;
+  gap: 1rem;
+  width: min(100%, 20rem);
+  /* As wide as the gap plus the button, so the input itself is centred. */
+  padding-left: 3rem;
+}
+
+.lookup input {
+  flex: 1;
+  min-width: 0;
+  padding: 0.25rem;
+  font-size: 1.125rem;
+  text-align: center;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.lookup input::placeholder {
+  color: var(--faint);
+}
+
+.lookup input:focus {
+  border-color: var(--text);
+}
+
+.lookup input[aria-invalid="true"] {
+  border-color: var(--warn);
+}
+
+.submit {
+  white-space: nowrap;
+}
+
+.hint,
+.warning {
+  max-width: 20rem;
+  margin-top: 0.75rem;
+  font-size: 0.875rem;
+  color: var(--muted);
+}
+
+.warning {
+  color: var(--warn);
+}
+
+.example {
+  border-bottom-style: dashed;
+}
+
+/* ---- Results ---- */
+
+.counter {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  column-gap: 0.15em;
+  margin-bottom: 2rem;
+  font-size: clamp(2.75rem, 11vw, 5.5rem);
+  font-weight: 600;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+.counter__group {
+  white-space: nowrap;
+}
+
+/* The same gap after every unit, inside a group or between groups. */
+.counter__value:not(:first-child) {
+  margin-left: 0.15em;
+}
+
+.counter__unit {
+  font-size: 0.3em;
+  font-weight: 400;
+  letter-spacing: 0;
+  color: var(--muted);
+}
+
+.thumbnail {
+  display: block;
+  width: min(100%, 28rem);
+  margin-bottom: 1.5rem;
+  padding: 0;
+  border: 0;
+}
+
+.thumbnail img {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+}
+
+.links {
+  list-style: none;
+}
+
+.links li {
+  margin: 0.5rem 0;
+}
+
+/* On a narrow screen the link moves to its own line as a whole, and the
+   arrow stays with its label. */
+.links__label {
+  white-space: nowrap;
+}
+
+.links a {
+  display: inline-block;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.shortcuts {
+  margin-top: 2rem;
+}
+
+/* ---- Footer ---- */
+
+.site-footer {
+  padding: 1.5rem 1rem 2rem;
+  text-align: center;
+  font-size: 0.75rem;
+  color: var(--faint);
+}
+
+.site-footer a {
+  color: var(--muted);
+}
+
+.site-footer .dot {
+  margin: 0 0.5rem;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+@media (max-width: 30rem) {
+  h1 {
+    font-size: 1.625rem;
+  }
+
+  .lead {
+    font-size: 1.125rem;
+  }
+}

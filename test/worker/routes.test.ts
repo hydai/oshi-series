@@ -209,6 +209,32 @@ describe("cache lifetimes", () => {
   });
 });
 
+describe("pages", () => {
+  // Stands in for the static assets: answers with the path it was asked for.
+  const assets = {
+    fetch: async (input: RequestInfo | URL) =>
+      new Response(`asset ${new URL(input instanceof Request ? input.url : String(input)).pathname}`),
+  };
+  const page = (path: string) =>
+    handleRequest(new Request(`https://liveinfo.oshi.tw${path}`), { ...env, ASSETS: assets as Fetcher }, {
+      fetch: noYouTube().fetch,
+      now: () => NOW,
+    });
+
+  it.each([["/last/@NASA"], ["/recent/@NASA"], ["/recent/"], ["/last/%40%E6%98%9F%E8%A1%97"]])(
+    "serves the app itself for %s instead of a redirect to an encoded path",
+    async (path) => {
+      const res = await page(path);
+      expect(res.status).toBe(200);
+      expect(await res.text()).toBe("asset /");
+    },
+  );
+
+  it("leaves other paths to the static assets", async () => {
+    expect(await (await page("/favicon.svg")).text()).toBe("asset /favicon.svg");
+  });
+});
+
 describe("GET /api/config", () => {
   it("is served by the deployed entry point and reports Twitch as off without credentials", async () => {
     const res = await SELF.fetch("https://liveinfo.oshi.tw/api/config");

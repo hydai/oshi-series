@@ -13,5 +13,5 @@
     "strict": true,
     "skipLibCheck": true
   },
-  "include": ["vitest.config.ts"]
+  "include": ["vite.config.ts", "vitest.config.ts", "vitest.client.config.ts"]
 }

@@ -17,6 +17,7 @@ export interface Deps {
 type Mode = "last" | "recent";
 
 const LOOKUP_PATH = /^\/api\/(last|recent)\/([^/]+)$/;
+const APP_PATH = /^\/(last|recent)\//;
 
 // How long a lookup result is reused. A live result goes stale fastest; a
 // channel that has never streamed is unlikely to start within the hour.
@@ -30,7 +31,10 @@ const lastLiveTtl = (result: LastLive) =>
 
 export async function handleRequest(request: Request, env: Env, deps: Deps): Promise<Response> {
   const url = new URL(request.url);
-  // wrangler.jsonc routes only /api/* here; everything else is a static asset.
+  // The asset handler would answer /last/@NASA with a redirect to /last/%40NASA;
+  // serve the app shell instead so the address stays readable.
+  if (APP_PATH.test(url.pathname)) return env.ASSETS.fetch(new Request(new URL("/", url), request));
+  // wrangler.jsonc routes only /api/* and the pages above here.
   if (!url.pathname.startsWith("/api/")) return env.ASSETS.fetch(request);
   if (request.method !== "GET") return apiError("method_not_allowed", { allow: "GET" });
   if (url.pathname === "/api/config") return json({ twitch: twitchEnabled(env) } satisfies SiteConfig);
