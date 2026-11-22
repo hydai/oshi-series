@@ -1,0 +1,8 @@
+# 本機開發（wrangler dev）用的密鑰。複製成 .dev.vars 再填入；.dev.vars 不會被提交。
+# 第一次部署也可以直接拿它當 --secrets-file，見 README。
+
+YOUTUBE_API_KEY=
+
+# 選用：兩個都填才會開放 Twitch 查詢
+# TWITCH_CLIENT_ID=
+# TWITCH_CLIENT_SECRET=
