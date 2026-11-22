@@ -5,13 +5,7 @@ import globals from "globals";
 import tseslint from "typescript-eslint";
 
 export default defineConfig([
-  globalIgnores([
-    "dist/",
-    ".wrangler/",
-    "worker-configuration.d.ts",
-    // The Express backend is being replaced; not linted.
-    "backend/",
-  ]),
+  globalIgnores(["dist/", ".wrangler/", "worker-configuration.d.ts"]),
   js.configs.recommended,
   tseslint.configs.recommended,
   pluginVue.configs["flat/recommended"],
