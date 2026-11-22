@@ -130,7 +130,7 @@ describe("/last/:account", () => {
 
   it.each([
     [404, "not_found", "找不到這個頻道"],
-    [429, "rate_limited", "查詢太頻繁"],
+    [429, "daily_limit", "今天的查詢次數已用完"],
     [503, "quota_exceeded", "查詢額度已用完"],
     [503, "twitch_disabled", "沒有開放 Twitch 查詢"],
     [502, "upstream_error", "查詢失敗"],

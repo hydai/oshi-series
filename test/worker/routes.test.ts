@@ -215,23 +215,54 @@ describe("errors", () => {
   });
 });
 
-describe("rate limiting", () => {
-  it("turns away an address after 30 lookups a minute, but not others", async () => {
+describe("daily limit", () => {
+  /** `count` lookups of the same channel (answered from the stored answer after the first). */
+  const lookUp = async (count: number, ip: (i: number) => string) => {
     const yt = fakeYouTube({ channels: [NASA], videos });
     const statuses: number[] = [];
-    for (let i = 0; i < 31; i++) statuses.push((await get("/api/last/@NASA", yt, { ip: "203.0.113.7" })).status);
+    for (let i = 0; i < count; i++) statuses.push((await get("/api/last/@NASA", yt, { ip: ip(i) })).status);
+    return statuses;
+  };
+
+  it("turns a visitor away after 30 lookups in a day, stored answers included", async () => {
+    const statuses = await lookUp(31, () => "203.0.113.7");
 
     expect(statuses.slice(0, 30).every((s) => s === 200)).toBe(true);
     expect(statuses[30]).toBe(429);
-    expect((await get("/api/last/@NASA", yt, { ip: "203.0.113.8" })).status).toBe(200);
+    const refused = await get("/api/recent/@NASA", noYouTube(), { ip: "203.0.113.7" });
+    expect(await refused.json()).toEqual({ error: "daily_limit" });
   });
 
-  it("counts every address in one IPv6 /64 together", async () => {
-    const yt = fakeYouTube({ channels: [NASA], videos });
-    for (let i = 1; i <= 30; i++) await get("/api/last/@NASA", yt, { ip: `2001:db8:1:2::${i.toString(16)}` });
+  it("does not count other visitors against it", async () => {
+    await lookUp(30, () => "203.0.113.7");
+    expect((await get("/api/last/@NASA", fakeYouTube({ channels: [NASA], videos }), { ip: "203.0.113.8" })).status).toBe(
+      200,
+    );
+  });
 
+  it("counts every address in one IPv6 /64 as one visitor", async () => {
+    await lookUp(30, (i) => `2001:db8:1:2::${(i + 1).toString(16)}`);
+
+    const yt = fakeYouTube({ channels: [NASA], videos });
     expect((await get("/api/last/@NASA", yt, { ip: "2001:db8:1:2::ffff" })).status).toBe(429);
     expect((await get("/api/last/@NASA", yt, { ip: "2001:db8:1:3::1" })).status).toBe(200);
+  });
+
+  it("starts again at midnight Taiwan time", async () => {
+    vi.spyOn(runtime, "now").mockReturnValue(Date.parse("2026-11-22T15:59:00Z")); // 23:59 in Taiwan
+    await lookUp(31, () => "203.0.113.7");
+
+    vi.spyOn(runtime, "now").mockReturnValue(Date.parse("2026-11-22T16:00:00Z")); // 00:00 the next day
+    expect((await get("/api/last/@NASA", fakeYouTube({ channels: [NASA], videos }), { ip: "203.0.113.7" })).status).toBe(
+      200,
+    );
+  });
+
+  it("does not spend the allowance on requests that cannot be looked up", async () => {
+    for (let i = 0; i < 30; i++) await get("/api/last/NASA%21", noYouTube(), { ip: "203.0.113.7" });
+    expect((await get("/api/last/@NASA", fakeYouTube({ channels: [NASA], videos }), { ip: "203.0.113.7" })).status).toBe(
+      200,
+    );
   });
 });
 

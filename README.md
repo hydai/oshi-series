@@ -29,7 +29,7 @@
               ├─ 靜態檔案 dist/（Vue 網頁），找不到的路徑回 index.html
               ├─ /last/*、/recent/*  ── Worker 直接回網頁本體
               └─ /api/*              ── Worker
-                    ├─ Rate Limiting（API_RATE_LIMIT）每個 IP（IPv6 以 /64 計）每分鐘 30 次查詢
+                    ├─ DailyAllowance（Durable Object，每個訪客一個）每個 IP（IPv6 以 /64 計）每天 30 次查詢
                     └─ LookupCoordinator（Durable Object，每個查詢一個，例如 youtube:last:@nasa）
                           ├─ 保存答案到期為止，所有訪客共用
                           ├─ Workers KV（CACHE）：帳號 → 頻道、Twitch token
@@ -46,6 +46,10 @@
 - 還有沒過期的答案：直接回傳，不呼叫 API。
 - 沒有答案、而且已經有人在查：等那一次查詢的結果，不另外呼叫 API。所以同時有很多人打開同一個頻道，也只花一次配額。
 - 答案到期時，Durable Object 的 alarm 會把它刪掉，沒人再查的頻道不會留下資料。
+
+### 每天的查詢次數
+
+每個 IP（IPv6 以 /64 計）每天最多查 30 次（`wrangler.jsonc` 的 `DAILY_LOOKUP_LIMIT`），台灣時間午夜重新計算。計數放在每個訪客一個的 DailyAllowance（Durable Object），所以不論請求進到哪個機房都算得準。直接拿到現成答案的查詢也算一次；格式錯誤、或網站沒設定好而無法查的請求不算。
 
 ### YouTube 資料怎麼來
 
@@ -128,6 +132,7 @@ src/
 │   ├── index.ts        路由、檢查請求、交給 LookupCoordinator
 │   ├── coordinator.ts  LookupCoordinator：保存答案、讓同一個查詢只跑一次
 │   ├── lookup.ts       實際查詢 YouTube／Twitch、答案保留多久、錯誤對應
+│   ├── allowance.ts    DailyAllowance：每個訪客每天的查詢次數
 │   ├── requester.ts    訪客位址（IPv6 /64）、擋其他網站的請求
 │   ├── runtime.ts      對外請求與時間（測試時替換）
 │   ├── cache.ts        KV 快取
@@ -157,7 +162,7 @@ test/
 | 403 | `forbidden` | 瀏覽器標示這個查詢來自其他網站（`Sec-Fetch-Site`），避免別的網頁替訪客消耗配額 |
 | 404 | `not_found` | 找不到頻道，或 API 路徑不存在 |
 | 405 | `method_not_allowed` | 不是 `GET` |
-| 429 | `rate_limited` | 同一個 IP 一分鐘內查太多次 |
+| 429 | `daily_limit` | 同一個 IP 今天已經查滿次數（台灣時間午夜重新計算） |
 | 502 | `upstream_error` | YouTube／Twitch 回應錯誤或連不上 |
 | 503 | `quota_exceeded` | 今天的 YouTube 配額用完 |
 | 503 | `twitch_disabled` | 沒有設定 Twitch 憑證 |
@@ -165,7 +170,7 @@ test/
 
 ## 已知限制
 
-- 流量限制只有「每分鐘」，沒有每日上限：有人刻意用多個 IP 持續查詢不同頻道，仍可能在一天內用完 YouTube 配額，之後到重置前沒有快取的查詢都會顯示額度已用完。
+- 每個 IP 每天 30 次查詢，但沒有全站的每日上限：有人刻意用很多個 IP 查詢不同頻道，仍可能在一天內用完 YouTube 配額，之後到重置前沒有快取的查詢都會顯示額度已用完。
 - 「最近開了多久」只算最近 30 天內**開始**、而且已經結束的 YouTube 直播，最多看直播清單上最新的 200 支（含待機室）；正在直播的那場不算。
 - Twitch 的資料來自直播存檔：沒開存檔或存檔過期的直播查不到。「最近開了多久」最多算 100 支存檔，而且會把進行中直播的存檔算進去。
 - 會員限定直播不在「直播」播放清單裡，不會被計入。頻道沒有「直播」播放清單時只看最新 50 支上傳影片，這時首播也可能被當成直播。

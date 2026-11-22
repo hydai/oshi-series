@@ -5,7 +5,7 @@ const STATUS: Record<ApiErrorCode, number> = {
   forbidden: 403,
   not_found: 404,
   method_not_allowed: 405,
-  rate_limited: 429,
+  daily_limit: 429,
   internal_error: 500,
   upstream_error: 502,
   quota_exceeded: 503,

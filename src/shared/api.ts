@@ -52,7 +52,7 @@ export type ApiErrorCode =
   | "invalid_account"
   | "forbidden"
   | "not_found"
-  | "rate_limited"
+  | "daily_limit"
   | "quota_exceeded"
   | "twitch_disabled"
   | "not_configured"

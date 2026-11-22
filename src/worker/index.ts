@@ -3,7 +3,9 @@ import type { SiteConfig } from "../shared/api";
 import { apiError, json } from "./http";
 import { type Mode, twitchEnabled } from "./lookup";
 import { clientKey, isCrossSite } from "./requester";
+import { runtime } from "./runtime";
 
+export { DailyAllowance } from "./allowance";
 export { LookupCoordinator } from "./coordinator";
 
 const LOOKUP_PATH = /^\/api\/(last|recent)\/([^/]+)$/;
@@ -22,12 +24,12 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
   const match = LOOKUP_PATH.exec(url.pathname);
   if (!match) return apiError("not_found");
   if (isCrossSite(request)) return apiError("forbidden");
-  if (!(await withinRateLimit(request, env))) return apiError("rate_limited");
 
   const account = decodeAccount(match[2]!);
   if (!account) return apiError("invalid_account");
   if (account.platform === "twitch" && !twitchEnabled(env)) return apiError("twitch_disabled");
   if (account.platform === "youtube" && !env.YOUTUBE_API_KEY) return apiError("not_configured");
+  if (!(await withinDailyLimit(request, env))) return apiError("daily_limit");
 
   // Every request for the same lookup goes to the same Durable Object, which
   // shares the answer (see coordinator.ts).
@@ -50,12 +52,16 @@ function decodeAccount(encoded: string): Account | null {
   }
 }
 
-async function withinRateLimit(request: Request, env: Env): Promise<boolean> {
-  const key = clientKey(request.headers.get("cf-connecting-ip"));
+const DEFAULT_DAILY_LIMIT = 30;
+
+/** Uses one of the visitor's lookups for today (see allowance.ts). */
+async function withinDailyLimit(request: Request, env: Env): Promise<boolean> {
+  const visitor = clientKey(request.headers.get("cf-connecting-ip"));
+  const limit = Number.parseInt(env.DAILY_LOOKUP_LIMIT, 10) || DEFAULT_DAILY_LIMIT;
   try {
-    return (await env.API_RATE_LIMIT.limit({ key })).success;
+    return await env.ALLOWANCES.get(env.ALLOWANCES.idFromName(visitor)).take(runtime.now(), limit);
   } catch (error) {
-    console.warn("rate limiter unavailable, letting the request through:", error);
+    console.warn("daily allowance unavailable, letting the request through:", error);
     return true;
   }
 }

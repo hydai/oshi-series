@@ -25,21 +25,22 @@
 
   // One LookupCoordinator per lookup ("youtube:last:@nasa"): it holds the
   // answer and makes visitors asking at the same time share one API lookup.
+  // One DailyAllowance per visitor: it counts the day's lookups.
   "durable_objects": {
-    "bindings": [{ "name": "LOOKUPS", "class_name": "LookupCoordinator" }]
+    "bindings": [
+      { "name": "LOOKUPS", "class_name": "LookupCoordinator" },
+      { "name": "ALLOWANCES", "class_name": "DailyAllowance" }
+    ]
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["LookupCoordinator"] }],
-
-  // Per-IP limit on /api/last and /api/recent.
-  "ratelimits": [
-    {
-      "name": "API_RATE_LIMIT",
-      "namespace_id": "1122000801",
-      "simple": { "limit": 30, "period": 60 }
-    }
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["LookupCoordinator"] },
+    { "tag": "v2", "new_sqlite_classes": ["DailyAllowance"] }
   ],
 
   "vars": {
+    // Lookups (/api/last, /api/recent) one visitor may make per day, counted
+    // per IPv4 address or IPv6 /64 and reset at midnight Taiwan time.
+    "DAILY_LOOKUP_LIMIT": "30",
     // Sent as the Referer header to the YouTube Data API, so an API key with an
     // HTTP-referrer restriction for this site keeps working from the Worker.
     "YOUTUBE_API_REFERER": "https://liveinfo.oshi.tw/"
