@@ -19,9 +19,16 @@
     "run_worker_first": ["/api/*", "/last/*", "/recent/*"]
   },
 
-  // Lookup cache. No id on purpose: the first `wrangler deploy` provisions the
-  // namespace and later deploys keep using it.
+  // Handle → channel and Twitch token cache. No id on purpose: the first
+  // `wrangler deploy` provisions the namespace and later deploys keep using it.
   "kv_namespaces": [{ "binding": "CACHE" }],
+
+  // One LookupCoordinator per lookup ("youtube:last:@nasa"): it holds the
+  // answer and makes visitors asking at the same time share one API lookup.
+  "durable_objects": {
+    "bindings": [{ "name": "LOOKUPS", "class_name": "LookupCoordinator" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["LookupCoordinator"] }],
 
   // Per-IP limit on /api/last and /api/recent.
   "ratelimits": [

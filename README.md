@@ -30,12 +30,22 @@
               ├─ /last/*、/recent/*  ── Worker 直接回網頁本體
               └─ /api/*              ── Worker
                     ├─ Rate Limiting（API_RATE_LIMIT）每個 IP（IPv6 以 /64 計）每分鐘 30 次查詢
-                    ├─ Workers KV（CACHE）查詢結果快取
-                    ├─ YouTube Data API v3
-                    └─ Twitch Helix API（選用）
+                    └─ LookupCoordinator（Durable Object，每個查詢一個，例如 youtube:last:@nasa）
+                          ├─ 保存答案到期為止，所有訪客共用
+                          ├─ Workers KV（CACHE）：帳號 → 頻道、Twitch token
+                          ├─ YouTube Data API v3
+                          └─ Twitch Helix API（選用）
 ```
 
 `/last/*`、`/recent/*` 也交給 Worker，是因為靜態檔案的處理會把 `/last/@NASA` 轉址成 `/last/%40NASA`；由 Worker 直接回 `index.html`，網址列就能維持 `@`。
+
+### 同一個頻道只查一次
+
+同一個查詢（例如「@nasa 多久沒開台」）不論來自哪個 IP、哪個 Cloudflare 機房，都交給同一個 LookupCoordinator：
+
+- 還有沒過期的答案：直接回傳，不呼叫 API。
+- 沒有答案、而且已經有人在查：等那一次查詢的結果，不另外呼叫 API。所以同時有很多人打開同一個頻道，也只花一次配額。
+- 答案到期時，Durable Object 的 alarm 會把它刪掉，沒人再查的頻道不會留下資料。
 
 ### YouTube 資料怎麼來
 
@@ -47,12 +57,12 @@
 
 一次沒有快取的查詢通常花 2–3 單位。每個 Google Cloud 專案每天有 10,000 單位，在太平洋時間午夜（台灣下午 3 或 4 點）重置。
 
-| 快取（KV） | 保留時間 |
-| --- | --- |
-| 帳號 → 頻道 | 7 天（查無此帳號：1 小時） |
-| 多久沒開台 | 5 分鐘（直播中：1 分鐘；從沒開過台：1 小時） |
-| 最近開了多久 | 1 小時 |
-| Twitch app token | 到期前 1 小時 |
+| 資料 | 存在 | 保留時間 |
+| --- | --- | --- |
+| 多久沒開台 | LookupCoordinator | 5 分鐘（直播中：1 分鐘；從沒開過台：1 小時） |
+| 最近開了多久 | LookupCoordinator | 1 小時 |
+| 帳號 → 頻道 | KV | 7 天（查無此帳號：1 小時） |
+| Twitch app token | KV | 到期前 1 小時 |
 
 ## 部署
 
@@ -75,6 +85,7 @@ npm run deploy -- --secrets-file .dev.vars
 
 - `wrangler.jsonc` 把 `YOUTUBE_API_KEY` 列為必要的 secret，所以第一次部署要用 `--secrets-file` 一起上傳；少了它 wrangler 會拒絕部署。若 shell 環境變數裡有同名變數，會蓋過檔案裡的值。
 - KV namespace 沒有寫死 ID：第一次 `wrangler deploy` 會自動建立，之後的部署沿用同一個。
+- Durable Object 的類別由 `wrangler.jsonc` 的 `migrations` 在部署時建立，不需要另外設定。
 - `routes` 用 custom domain 綁 `liveinfo.oshi.tw`，部署時會自動建立 DNS 紀錄與憑證；如果已經有同名的 DNS 紀錄要先刪掉。
 
 ### 3. 之後
@@ -106,7 +117,7 @@ npm run dev                      # 終端機 2：網頁在 http://localhost:5173
 | `npm run lint` | ESLint |
 | `npm run cf-typegen` | 改了 `wrangler.jsonc` 後重新產生 `worker-configuration.d.ts` |
 
-測試不會連到 YouTube 或 Twitch：Worker 的對外請求在測試裡換成模擬的 API（`test/worker/fake-*.ts`）。
+測試不會連到 YouTube 或 Twitch：Worker 與 Durable Object 的對外請求都經過 `src/worker/runtime.ts`，測試把它換成模擬的 API（`test/worker/fake-*.ts`）。Durable Object 在測試的同一個 isolate 裡執行，所以換得到。
 
 ### 專案結構
 
@@ -114,10 +125,14 @@ npm run dev                      # 終端機 2：網頁在 http://localhost:5173
 src/
 ├── shared/      Worker 與網頁共用：帳號格式、API 回應型別
 ├── worker/      Cloudflare Worker
-│   ├── index.ts     路由、流量限制、錯誤對應
-│   ├── cache.ts     KV 快取
-│   ├── youtube/     Data API 呼叫與「多久沒開台／最近開了多久」的計算
-│   └── twitch.ts    Helix API（選用）
+│   ├── index.ts        路由、檢查請求、交給 LookupCoordinator
+│   ├── coordinator.ts  LookupCoordinator：保存答案、讓同一個查詢只跑一次
+│   ├── lookup.ts       實際查詢 YouTube／Twitch、答案保留多久、錯誤對應
+│   ├── requester.ts    訪客位址（IPv6 /64）、擋其他網站的請求
+│   ├── runtime.ts      對外請求與時間（測試時替換）
+│   ├── cache.ts        KV 快取
+│   ├── youtube/        Data API 呼叫與「多久沒開台／最近開了多久」的計算
+│   └── twitch.ts       Helix API（選用）
 └── client/      Vue 網頁（views/ 三個畫面、style.css 外觀）
 test/
 ├── worker/      Worker 測試

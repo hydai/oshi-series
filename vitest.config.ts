@@ -6,9 +6,19 @@ import { defineConfig } from "vitest/config";
 process.env.YOUTUBE_API_KEY = "test-youtube-key";
 
 // Worker tests run inside workerd with the bindings declared in wrangler.jsonc
-// (local KV and rate limiter). Outbound HTTP is never real: tests inject fetch.
+// (local KV, rate limiter and Durable Objects). Outbound HTTP is never real:
+// tests replace fetch. The Durable Objects read their own env, so the fake
+// Twitch credentials (test/worker/fake-twitch.ts) are bound for every test;
+// tests of a site without Twitch pass the Worker an env without them.
 export default defineConfig({
-  plugins: [cloudflareTest({ wrangler: { configPath: "./wrangler.jsonc" } })],
+  plugins: [
+    cloudflareTest({
+      wrangler: { configPath: "./wrangler.jsonc" },
+      miniflare: {
+        bindings: { TWITCH_CLIENT_ID: "test-client-id", TWITCH_CLIENT_SECRET: "test-client-secret" },
+      },
+    }),
+  ],
   test: {
     include: ["test/worker/**/*.test.ts"],
   },

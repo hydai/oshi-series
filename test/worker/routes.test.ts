@@ -1,7 +1,8 @@
-import { env, reset, SELF } from "cloudflare:test";
-import { afterEach, describe, expect, it } from "vitest";
+import { env, reset, runDurableObjectAlarm, runInDurableObject, SELF } from "cloudflare:test";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { handleRequest } from "../../src/worker/index";
-import { CLIENT_ID, CLIENT_SECRET, type FakeTwitch, fakeTwitch, twitchArchive, twitchUser } from "./fake-twitch";
+import { runtime } from "../../src/worker/runtime";
+import { type FakeTwitch, fakeTwitch, twitchArchive, twitchUser } from "./fake-twitch";
 import { endedVideo, type FakeChannel, type FakeYouTube, fakeYouTube, liveVideo } from "./fake-youtube";
 
 const NOW = Date.parse("2026-11-22T00:00:00Z");
@@ -12,28 +13,44 @@ const NASA: FakeChannel = {
   live: ["s1", "s2"],
 };
 const videos = [endedVideo("s1", "2026-11-20T10:00:00Z", 7200), endedVideo("s2", "2026-11-10T10:00:00Z", 3600)];
-const twitchEnv: Env = { ...env, TWITCH_CLIENT_ID: CLIENT_ID, TWITCH_CLIENT_SECRET: CLIENT_SECRET };
+// The test bindings include fake Twitch credentials (vitest.config.ts); this is a site without them.
+const noTwitchEnv: Env = { ...env, TWITCH_CLIENT_ID: undefined, TWITCH_CLIENT_SECRET: undefined };
+
+/** The Durable Object that answers the lookup `key`, e.g. "youtube:last:@nasa". */
+const coordinator = (key: string) => env.LOOKUPS.get(env.LOOKUPS.idFromName(key));
 
 let ip = 0;
-/** Each request comes from a new address unless one is given, so the rate limiter stays out of the way. */
+/**
+ * Sends a request to the Worker, with every outbound call (the Durable
+ * Objects' included) answered by `network`. Each request comes from a new
+ * address unless one is given, so the rate limiter stays out of the way.
+ */
 const get = (
   path: string,
-  yt: FakeYouTube | FakeTwitch,
+  network: FakeYouTube | FakeTwitch,
   init: RequestInit & { ip?: string } = {},
   testEnv: Env = env,
-) =>
-  handleRequest(
+) => {
+  vi.spyOn(runtime, "fetch").mockImplementation(network.fetch);
+  return handleRequest(
     new Request(`https://liveinfo.oshi.tw${path}`, {
       ...init,
       headers: { "cf-connecting-ip": init.ip ?? `198.51.100.${++ip % 250}`, ...(init.headers as Record<string, string>) },
     }),
     testEnv,
-    { fetch: yt.fetch, now: () => NOW },
   );
+};
 
 const noYouTube = () => fakeYouTube({ channels: [], videos: [] });
 
-afterEach(() => reset());
+beforeEach(() => {
+  vi.spyOn(runtime, "now").mockReturnValue(NOW);
+});
+
+afterEach(async () => {
+  vi.restoreAllMocks();
+  await reset();
+});
 
 describe("GET /api/last/:account", () => {
   it("answers with the last stream as uncached JSON", async () => {
@@ -47,17 +64,6 @@ describe("GET /api/last/:account", () => {
       platform: "youtube",
       stream: { id: "s1", endedAt: "2026-11-20T12:00:00.000Z" },
     });
-  });
-
-  it("serves a repeated lookup from the cache without calling YouTube", async () => {
-    const yt = fakeYouTube({ channels: [NASA], videos });
-    await get("/api/last/@NASA", yt);
-    const calls = yt.count();
-
-    const again = await get("/api/last/@nasa", yt);
-    expect(again.status).toBe(200);
-    expect(await again.json()).toMatchObject({ status: "ended", stream: { id: "s1" } });
-    expect(yt.count()).toBe(calls);
   });
 
   it("reports a live channel", async () => {
@@ -79,12 +85,72 @@ describe("GET /api/recent/:account", () => {
     expect(await res.json()).toMatchObject({ days: 30, totalSeconds: 7200 + 3600, count: 2 });
   });
 
-  it("keeps last-live and recent results apart in the cache", async () => {
+  it("keeps last-live and recent answers apart", async () => {
     const yt = fakeYouTube({ channels: [NASA], videos });
     await get("/api/last/@NASA", yt);
 
     const res = await get("/api/recent/@NASA", yt);
     expect(await res.json()).toMatchObject({ totalSeconds: 7200 + 3600 });
+  });
+});
+
+describe("sharing lookups", () => {
+  it("gives a later visitor, from anywhere, the stored answer without calling YouTube", async () => {
+    const yt = fakeYouTube({ channels: [NASA], videos });
+    await get("/api/last/@NASA", yt, { ip: "203.0.113.1" });
+    const calls = yt.count();
+
+    const again = await get("/api/last/@nasa", yt, { ip: "2001:db8::1" });
+    expect(await again.json()).toMatchObject({ status: "ended", stream: { id: "s1" } });
+    expect(yt.count()).toBe(calls);
+  });
+
+  it("makes one set of YouTube calls for visitors asking at the same time", async () => {
+    let open!: () => void;
+    const gate = new Promise<void>((resolve) => (open = resolve));
+    const yt = fakeYouTube({ channels: [NASA], videos });
+    const slow = {
+      ...yt,
+      fetch: (async (input: RequestInfo | URL, init?: RequestInit) => {
+        await gate;
+        return yt.fetch(input, init);
+      }) as typeof fetch,
+    };
+
+    const answers = Promise.all(Array.from({ length: 5 }, () => get("/api/last/@NASA", slow)));
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    open();
+
+    expect((await answers).map((res) => res.status)).toEqual([200, 200, 200, 200, 200]);
+    // channels.list + one playlist page + one videos.list, once for all five.
+    expect(yt.count()).toBe(3);
+  });
+
+  it("drops an expired answer, so the next visitor gets a fresh one", async () => {
+    const yt = fakeYouTube({ channels: [NASA], videos });
+    await get("/api/last/@NASA", yt);
+    const lookups = yt.count("videos");
+
+    expect(await runDurableObjectAlarm(coordinator("youtube:last:@nasa"))).toBe(true);
+    await get("/api/last/@NASA", yt);
+    expect(yt.count("videos")).toBe(lookups + 1);
+  });
+
+  it.each([
+    ["a live answer", "last", [liveVideo("now", "2026-11-21T23:00:00Z", 5)], 60],
+    ["an ended stream", "last", videos, 5 * 60],
+    ["a channel that never streamed", "last", [], 60 * 60],
+    ["a 30-day total", "recent", videos, 60 * 60],
+  ] as const)("keeps %s for its documented time", async (_, mode, streams, seconds) => {
+    const yt = fakeYouTube({ channels: [{ ...NASA, live: streams.map((v) => v.id) }], videos: [...streams] });
+    await get(`/api/${mode}/@NASA`, yt);
+
+    const left = await runInDurableObject(coordinator(`youtube:${mode}:@nasa`), async (_, state) => {
+      const alarm = await state.storage.getAlarm();
+      return alarm === null ? null : (alarm - Date.now()) / 1000;
+    });
+    expect(left).toBeGreaterThan(seconds - 10);
+    expect(left).toBeLessThanOrEqual(seconds + 1);
   });
 });
 
@@ -111,7 +177,7 @@ describe("errors", () => {
     expect(await res.json()).toEqual({ error: "quota_exceeded" });
   });
 
-  it("answers 502 when YouTube fails, and does not cache the failure", async () => {
+  it("answers 502 when YouTube fails, and does not keep the failure", async () => {
     const failing = fakeYouTube({ channels: [NASA], videos, failWith: { status: 500, reason: "backendError" } });
     const res = await get("/api/last/@NASA", failing);
     expect(res.status).toBe(502);
@@ -128,7 +194,7 @@ describe("errors", () => {
   });
 
   it("answers 503 for a Twitch login while Twitch is not configured", async () => {
-    const res = await get("/api/last/nasa", noYouTube());
+    const res = await get("/api/last/nasa", noYouTube(), {}, noTwitchEnv);
     expect(res.status).toBe(503);
     expect(await res.json()).toEqual({ error: "twitch_disabled" });
   });
@@ -186,29 +252,6 @@ describe("requests from other sites", () => {
   });
 });
 
-describe("cache lifetimes", () => {
-  /** Seconds until the cached result whose KV key ends in `suffix` expires. */
-  const expiresIn = async (suffix: string) => {
-    const { keys } = await env.CACHE.list();
-    const expiration = keys.find((k) => k.name.endsWith(suffix))?.expiration;
-    return expiration === undefined ? null : expiration - Date.now() / 1000;
-  };
-
-  it.each([
-    ["a live answer", "last", [liveVideo("now", "2026-11-21T23:00:00Z", 5)], 60],
-    ["an ended stream", "last", videos, 5 * 60],
-    ["a channel that never streamed", "last", [], 60 * 60],
-    ["a 30-day total", "recent", videos, 60 * 60],
-  ] as const)("keeps %s for its documented time", async (_, mode, streams, seconds) => {
-    const yt = fakeYouTube({ channels: [{ ...NASA, live: streams.map((v) => v.id) }], videos: [...streams] });
-    await get(`/api/${mode}/@NASA`, yt);
-
-    const left = await expiresIn(`:${mode}:@nasa`);
-    expect(left).toBeGreaterThan(seconds - 10);
-    expect(left).toBeLessThanOrEqual(seconds + 1);
-  });
-});
-
 describe("pages", () => {
   // Stands in for the static assets: answers with the path it was asked for.
   const assets = {
@@ -216,10 +259,7 @@ describe("pages", () => {
       new Response(`asset ${new URL(input instanceof Request ? input.url : String(input)).pathname}`),
   };
   const page = (path: string) =>
-    handleRequest(new Request(`https://liveinfo.oshi.tw${path}`), { ...env, ASSETS: assets as Fetcher }, {
-      fetch: noYouTube().fetch,
-      now: () => NOW,
-    });
+    handleRequest(new Request(`https://liveinfo.oshi.tw${path}`), { ...env, ASSETS: assets as Fetcher });
 
   it.each([["/last/@NASA"], ["/recent/@NASA"], ["/recent/"], ["/last/%40%E6%98%9F%E8%A1%97"]])(
     "serves the app itself for %s instead of a redirect to an encoded path",
@@ -236,16 +276,17 @@ describe("pages", () => {
 });
 
 describe("GET /api/config", () => {
-  it("is served by the deployed entry point and reports Twitch as off without credentials", async () => {
+  it("is served by the deployed entry point", async () => {
     const res = await SELF.fetch("https://liveinfo.oshi.tw/api/config");
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ twitch: false });
+    expect(await res.json()).toEqual({ twitch: true });
   });
 
   it("reports Twitch as on only when both credentials are set", async () => {
     const config = async (testEnv: Env) => (await get("/api/config", noYouTube(), {}, testEnv)).json();
-    expect(await config(twitchEnv)).toEqual({ twitch: true });
-    expect(await config({ ...env, TWITCH_CLIENT_ID: CLIENT_ID })).toEqual({ twitch: false });
+    expect(await config(env)).toEqual({ twitch: true });
+    expect(await config({ ...env, TWITCH_CLIENT_SECRET: undefined })).toEqual({ twitch: false });
+    expect(await config(noTwitchEnv)).toEqual({ twitch: false });
   });
 });
 
@@ -261,7 +302,7 @@ describe("Twitch lookups", () => {
     });
 
   it("answers /api/last for a login, ignoring its case", async () => {
-    const res = await get("/api/last/Oshi_TW", twitch(), {}, twitchEnv);
+    const res = await get("/api/last/Oshi_TW", twitch());
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({
       status: "ended",
@@ -270,18 +311,18 @@ describe("Twitch lookups", () => {
     });
   });
 
-  it("answers /api/recent and caches the result", async () => {
+  it("answers /api/recent and keeps the answer", async () => {
     const tw = twitch();
-    const first = await get("/api/recent/oshi_tw", tw, {}, twitchEnv);
+    const first = await get("/api/recent/oshi_tw", tw);
     expect(await first.json()).toMatchObject({ platform: "twitch", totalSeconds: 3 * 3600, count: 2 });
     const calls = tw.requests.length;
 
-    await get("/api/recent/oshi_tw", tw, {}, twitchEnv);
+    await get("/api/recent/oshi_tw", tw);
     expect(tw.requests.length).toBe(calls);
   });
 
   it("answers 404 for a login Twitch does not know", async () => {
-    const res = await get("/api/last/nobody_here", twitch(), {}, twitchEnv);
+    const res = await get("/api/last/nobody_here", twitch());
     expect(res.status).toBe(404);
   });
 });

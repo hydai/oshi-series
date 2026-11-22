@@ -35,17 +35,3 @@ export function kvCache(kv: KVNamespace): JsonCache {
     },
   };
 }
-
-/** Returns the cached value for `key`, or loads, stores and returns it. */
-export async function remember<T>(
-  cache: JsonCache,
-  key: string,
-  ttlSeconds: (value: T) => number,
-  load: () => Promise<T>,
-): Promise<T> {
-  const hit = await cache.get<T>(key);
-  if (hit !== null) return hit;
-  const value = await load();
-  await cache.put(key, value, ttlSeconds(value));
-  return value;
-}
